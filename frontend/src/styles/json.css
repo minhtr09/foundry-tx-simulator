@@ -1,7 +1,7 @@
 .json-output {
   margin: 0;
-  min-height: calc(100vh - 140px);
-  overflow: auto;
+  min-height: 100%;
+  overflow: visible;
   padding: 14px;
   color: var(--text);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;

@@ -102,7 +102,7 @@ export default function App() {
       setResponse(result.response);
       setSimulationRecord(buildSimulationExport(variables.request, result.response));
       setRequestLookupId(result.requestId);
-      setOutputView(outputViewFromResponse(result.response));
+      setOutputView("trace");
       setExpandMode("depth");
       setOptimisticProjects([]);
       syncRequestIdToURL(result.requestId);
@@ -148,7 +148,7 @@ export default function App() {
           setResponse(record.response);
           setSimulationRecord(record);
           setRequestLookupId(record.id);
-          setOutputView(outputViewFromResponse(record.response));
+          setOutputView("trace");
           setExpandMode("depth");
           setError("");
           syncRequestIdToURL(record.id);
@@ -268,7 +268,7 @@ export default function App() {
     setResponse(parsed.response);
     setSimulationRecord(parsed);
     setRequestLookupId(parsed.id);
-    setOutputView(outputViewFromResponse(parsed.response));
+    setOutputView("trace");
     setExpandMode("depth");
     if (parsed.request.projectPath) {
       setOptimisticProjects((current) => mergeProjects([parsed.request.projectPath ?? ""], current).slice(0, 20));
@@ -364,10 +364,6 @@ function mergeProjects(primary: string[], secondary: string[]): string[] {
     merged.push(path);
   }
   return merged;
-}
-
-function outputViewFromResponse(response: SimulateResponse): OutputView {
-  return response.erc20Transfers?.length ? "flow" : response.balanceAnalysis ? "balances" : "trace";
 }
 
 function syncRequestIdToURL(requestId: string) {

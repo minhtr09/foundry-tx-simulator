@@ -173,7 +173,8 @@ test("exports and imports simulation input and output", async ({ page }, testInf
   await expect(page.getByLabel("Sender")).toHaveValue(owner);
   await expect(page.getByLabel("Calldata")).toHaveValue("0x");
   await expect(page.getByText("success | 12ms | exit 0 | imported-run")).toBeVisible();
-  await expect(page.getByRole("img", { name: "Fund flow graph" })).toBeVisible();
+  await expectActiveOutputTab(page, "Trace");
+  await expect(page.locator(".trace-tree")).toContainText("transferFrom");
 
   await page.getByRole("button", { name: "Import", exact: true }).click();
   const importDialog = page.getByRole("dialog", { name: "Import simulation data" });
@@ -200,6 +201,7 @@ test("exports and imports simulation input and output", async ({ page }, testInf
   await expect(page.getByLabel("Block")).toHaveValue("23000002");
   await expect(page.getByLabel("Sender")).toHaveValue(recipient);
   await expect(page.getByText("success | 12ms | exit 0 | pasted-run")).toBeVisible();
+  await expectActiveOutputTab(page, "Trace");
 
   const invalidImportPath = testInfo.outputPath("invalid-import.json");
   await writeFile(invalidImportPath, JSON.stringify({ id: "bad", request: {}, response: {} }));
@@ -275,6 +277,9 @@ test("uses configured explorer links and renders only the last main call subtree
   await expect(page.getByText("success |")).toBeVisible();
   await expect(page.getByLabel("Request ID")).toHaveValue("browser-test");
 
+  await expectActiveOutputTab(page, "Trace");
+  await expect(page.locator(".trace-tree")).toContainText("transferFrom");
+  await clickOutputTab(page, "Flow");
   await expect(page.getByRole("img", { name: "Fund flow graph" })).toBeVisible();
   await page.reload();
   await expect(page.getByText("success | 12ms | exit 0 | browser-test")).toBeVisible();
@@ -294,13 +299,13 @@ test("uses configured explorer links and renders only the last main call subtree
   await ownerTableReference.click();
   await expect(ownerTableAddressCard).toBeHidden();
 
-  await page.evaluate(() => {
-    window.scrollTo(0, 360);
-  });
-  const flowScrollTop = await page.evaluate(() => window.scrollY);
+  await scrollOutputContent(page, 360);
+  const flowScrollTop = await outputScrollTop(page);
   expect(flowScrollTop).toBeGreaterThan(250);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 
   await clickOutputTab(page, "Trace");
+  await expect(page.locator(".output-scroll")).toHaveCSS("overflow-y", "auto");
   await expect(page.locator(".trace-tree")).toContainText("transferFrom");
   await expect(page.locator(".trace-tree")).toContainText("UnmappedToken");
   await expect(page.locator(".trace-tree")).toContainText("Transfer(from:");
@@ -342,7 +347,7 @@ test("uses configured explorer links and renders only the last main call subtree
   }
   await expect(page.locator(".trace-tree .address-reference-text").filter({ hasText: "callTarget" })).toHaveCount(0);
   await expect(page.locator(".trace-tree .address-reference-text").filter({ hasText: "srcToken" })).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(flowScrollTop);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   const transferFunction = page.locator(".trace-tree .function-reference").filter({ hasText: "transferFrom" }).first();
   const functionCard = page.getByRole("dialog", { name: "Function details" });
   await expect(functionCard).toBeHidden();
@@ -445,17 +450,24 @@ test("uses configured explorer links and renders only the last main call subtree
   await expect(traceMain).toHaveCSS("white-space", "normal");
   await expect(traceMain).toHaveCSS("text-align", "left");
 
-  await page.evaluate(() => {
-    window.scrollTo(0, 180);
-  });
+  await scrollOutputContent(page, 180);
+  expect(await outputScrollTop(page)).toBeGreaterThan(100);
   await clickOutputTab(page, "Flow");
   await expect(page.getByRole("img", { name: "Fund flow graph" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(flowScrollTop);
+  await expect.poll(() => outputScrollTop(page)).toBe(flowScrollTop);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 
   await page.getByRole("button", { name: "Balances" }).click();
+  await expect(page.locator(".output-scroll")).toHaveCSS("overflow-y", "auto");
   await expect(page.locator(".balance-analysis-table .address-reference").filter({ hasText: "WETHRecipient" }).first()).toBeVisible();
   await expectAddressTooltipStaysOpen(page, "WETHRecipient", recipient);
   await expectAddressTooltipClampsToViewport(page, "WETHRecipient", recipient);
+
+  await page.getByRole("button", { name: "JSON" }).click();
+  await expect(page.locator(".output-scroll")).toHaveCSS("overflow-y", "auto");
+  await scrollOutputContent(page, 360);
+  expect(await outputScrollTop(page)).toBeGreaterThan(250);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
 
 async function clickOutputTab(page: Page, name: string) {
@@ -464,6 +476,20 @@ async function clickOutputTab(page: Page, name: string) {
       element.click();
     }
   });
+}
+
+async function expectActiveOutputTab(page: Page, name: string) {
+  await expect(page.locator(".view-button.active")).toHaveText(name);
+}
+
+async function scrollOutputContent(page: Page, top: number) {
+  await page.locator(".output-scroll").evaluate((element, scrollTop) => {
+    element.scrollTo({ top: scrollTop });
+  }, top);
+}
+
+async function outputScrollTop(page: Page): Promise<number> {
+  return page.locator(".output-scroll").evaluate((element) => Math.round(element.scrollTop));
 }
 
 async function addLabel(page: Page, account: string, label: string) {

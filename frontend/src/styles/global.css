@@ -72,9 +72,16 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
 }
@@ -93,5 +100,7 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
