@@ -38,6 +38,7 @@ export type FormState = {
   optimize: boolean;
   offline: boolean;
   noMetadata: boolean;
+  decodeInternal: boolean;
 };
 
 const defaultApiUrl = window.__TXSIM_CONFIG__?.apiUrl ?? "http://127.0.0.1:8080";
@@ -63,15 +64,16 @@ export const defaults: FormState = {
   viaIR: true,
   optimize: true,
   offline: false,
-  noMetadata: false
+  noMetadata: false,
+  decodeInternal: false
 };
 
 export type UpdateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => void;
 
 export function formFromRequest(request: SimulateRequest, apiUrl: string): FormState {
   const compiler = request.compiler ?? {};
-  const stateSource = request.stateOverride?.source ?? request.stateOverrideCode ?? "";
-  const stateContractName = request.stateOverride?.contractName ?? request.stateOverrideContractName ?? "";
+  const stateSource = request.stateOverride?.source ?? "";
+  const stateContractName = request.stateOverride?.contractName ?? "";
   return {
     ...defaults,
     apiUrl,
@@ -94,7 +96,8 @@ export function formFromRequest(request: SimulateRequest, apiUrl: string): FormS
     viaIR: compiler.viaIR ?? defaults.viaIR,
     optimize: compiler.optimize ?? defaults.optimize,
     offline: compiler.offline ?? defaults.offline,
-    noMetadata: compiler.noMetadata ?? defaults.noMetadata
+    noMetadata: compiler.noMetadata ?? defaults.noMetadata,
+    decodeInternal: request.decodeInternal ?? defaults.decodeInternal
   };
 }
 
@@ -140,6 +143,7 @@ export function buildRequest(form: FormState): SimulateRequest {
     erc20BalanceOverrides: compactRows(form.erc20BalanceOverrides, ["token", "account", "balance"], "ERC20 balance overrides"),
     erc20ApprovalOverrides: compactRows(form.erc20ApprovalOverrides, ["token", "owner", "spender", "amount"], "ERC20 approval overrides"),
     erc721ApprovalOverrides: compactRows(form.erc721ApprovalOverrides, ["token", "owner", "spender", "tokenId"], "ERC721 approval overrides"),
+    decodeInternal: form.decodeInternal,
     compiler
   };
 

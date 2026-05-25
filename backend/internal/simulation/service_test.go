@@ -29,6 +29,27 @@ const (
 	baycTokenID = "1"
 )
 
+const simulationTestSource = `// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.0;
+contract SimulateTxRunnerTest {
+  function testSimulateTx() public {}
+}
+`
+
+func writeSimulationTestHarness(t *testing.T, repoRoot string) []byte {
+	t.Helper()
+
+	testDir := filepath.Join(repoRoot, "contracts", "test")
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := []byte(simulationTestSource)
+	if err := os.WriteFile(filepath.Join(testDir, "SimulateTxRunner.t.sol"), source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+
 func TestSimulateWETHBalanceApprovalAndTransferFrom(t *testing.T) {
 	cfg := loadTestConfig(t)
 	blockNumber := mainnetBlockNumber(t, cfg.RPCURLs["mainnet"])
@@ -68,9 +89,10 @@ func TestSimulateWETHBalanceApprovalAndTransferFrom(t *testing.T) {
 			EVMVersion:    "cancun",
 			RevertStrings: "default",
 		},
-		Sender: spender,
-		Target: wethAddress,
-		Data:   transferFromCalldata(owner, recipient, mustBigInt(t, amount)),
+		DecodeInternal: true,
+		Sender:         spender,
+		Target:         wethAddress,
+		Data:           transferFromCalldata(owner, recipient, mustBigInt(t, amount)),
 	}
 
 	resp, status := newTestService(t, cfg).Simulate(context.Background(), req)
@@ -110,9 +132,10 @@ func TestSimulateStateOverrideContractDealsWETHBalanceAndApproval(t *testing.T) 
 			ContractName: "WETHStateOverride",
 			Source:       wethStateOverrideSource(owner, spender, amount),
 		},
-		Sender: spender,
-		Target: wethAddress,
-		Data:   transferFromCalldata(owner, recipient, mustBigInt(t, amount)),
+		DecodeInternal: true,
+		Sender:         spender,
+		Target:         wethAddress,
+		Data:           transferFromCalldata(owner, recipient, mustBigInt(t, amount)),
 	}
 
 	resp, status := newTestService(t, cfg).Simulate(context.Background(), req)
@@ -151,9 +174,10 @@ func TestSimulateNFTApprovalAndTransferFrom(t *testing.T) {
 				TokenID: model.Uint256(baycTokenID),
 			},
 		},
-		Sender: spender,
-		Target: baycAddress,
-		Data:   transferFromCalldata(owner, recipient, mustBigInt(t, baycTokenID)),
+		DecodeInternal: true,
+		Sender:         spender,
+		Target:         baycAddress,
+		Data:           transferFromCalldata(owner, recipient, mustBigInt(t, baycTokenID)),
 	}
 
 	resp, status := newTestService(t, cfg).Simulate(context.Background(), req)
@@ -173,15 +197,9 @@ func TestSimulateNFTApprovalAndTransferFrom(t *testing.T) {
 	}
 }
 
-func TestSimulateReturnsTraceWhenScriptFailsWithoutFundFlow(t *testing.T) {
+func TestSimulateReturnsTraceWhenForgeTestFailsWithoutFundFlow(t *testing.T) {
 	repoRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoRoot, "contracts", "src"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	scriptSource := []byte("// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.0;\ncontract SimulateTxScript {}\n")
-	if err := os.WriteFile(filepath.Join(repoRoot, "contracts", "src", "SimulateTx.s.sol"), scriptSource, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeSimulationTestHarness(t, repoRoot)
 
 	cfg := config.Config{
 		ListenAddr:     "127.0.0.1:0",
@@ -226,11 +244,22 @@ func TestSimulateReturnsTraceWhenScriptFailsWithoutFundFlow(t *testing.T) {
 	if fakeAnvil.calls[0].rpcURL != "http://127.0.0.1:8545" || fakeAnvil.calls[0].blockNumber != "1" {
 		t.Fatalf("anvil fork call = %#v", fakeAnvil.calls[0])
 	}
-	if len(fake.calls) != 1 || !hasArgSequence(fake.calls[0], "--rpc-url", "http://127.0.0.1:19000") || !containsArg(fake.calls[0], "--json") || containsArg(fake.calls[0], "--fork-block-number") {
-		t.Fatalf("forge should run against worker anvil rpc without fork-block-number: %#v", fake.calls)
+	if len(fake.calls) != 1 ||
+		!hasArgSequence(fake.calls[0], "test") ||
+		!hasArgSequence(fake.calls[0], "--match-path", "test/SimulateTxRunner.t.sol") ||
+		!hasArgSequence(fake.calls[0], "--match-test", "testSimulateTx") ||
+		!hasArgSequence(fake.calls[0], "--rpc-url", "http://127.0.0.1:19000") ||
+		!containsArg(fake.calls[0], "--json") ||
+		containsArg(fake.calls[0], "--decode-internal") ||
+		containsArg(fake.calls[0], "--fork-block-number") ||
+		containsArg(fake.calls[0], "--non-interactive") {
+		t.Fatalf("forge should run the simulation test against worker anvil rpc: %#v", fake.calls)
+	}
+	if len(fake.envs) != 1 || !hasEnvPrefix(fake.envs[0], inputPathEnvName+"=") {
+		t.Fatalf("forge test should receive input path env: %#v", fake.envs)
 	}
 	if resp.Success {
-		t.Fatalf("success = true, want false for failing forge script")
+		t.Fatalf("success = true, want false for failing forge test")
 	}
 	if resp.ExitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1", resp.ExitCode)
@@ -239,10 +268,10 @@ func TestSimulateReturnsTraceWhenScriptFailsWithoutFundFlow(t *testing.T) {
 		t.Fatalf("error = %q, want empty", resp.Error)
 	}
 	if len(resp.ERC20Transfers) != 0 {
-		t.Fatalf("ERC20 transfers should be skipped on script failure: %#v", resp.ERC20Transfers)
+		t.Fatalf("ERC20 transfers should be skipped on forge test failure: %#v", resp.ERC20Transfers)
 	}
 	if resp.BalanceAnalysis != nil {
-		t.Fatalf("balance analysis should be skipped on script failure: %#v", resp.BalanceAnalysis)
+		t.Fatalf("balance analysis should be skipped on test failure: %#v", resp.BalanceAnalysis)
 	}
 	encoded, err := json.Marshal(resp)
 	if err != nil {
@@ -254,20 +283,55 @@ func TestSimulateReturnsTraceWhenScriptFailsWithoutFundFlow(t *testing.T) {
 	}
 	for _, field := range []string{"erc20Transfers", "balanceAnalysis", "error"} {
 		if _, ok := payload[field]; ok {
-			t.Fatalf("failed script response should omit %q: %s", field, encoded)
+			t.Fatalf("failed test response should omit %q: %s", field, encoded)
 		}
 	}
 }
 
-func TestSimulateExternalProjectBuildsSrcCompilesOverrideAndRunsCopiedScript(t *testing.T) {
+func TestSimulateDecodeInternalTrueAddsForgeFlag(t *testing.T) {
 	repoRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoRoot, "contracts", "src"), 0o755); err != nil {
-		t.Fatal(err)
+	writeSimulationTestHarness(t, repoRoot)
+
+	cfg := config.Config{
+		ListenAddr:     "127.0.0.1:0",
+		RepoRoot:       repoRoot,
+		WorkDir:        filepath.Join(t.TempDir(), "runs"),
+		TimeoutSeconds: 30,
+		MaxConcurrent:  1,
+		ForgeBin:       "forge",
+		RPCURLs: map[string]string{
+			"mainnet": "http://127.0.0.1:8545",
+		},
 	}
-	scriptSource := []byte("// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.0;\ncontract SimulateTxScript {}\n")
-	if err := os.WriteFile(filepath.Join(repoRoot, "contracts", "src", "SimulateTx.s.sol"), scriptSource, 0o644); err != nil {
-		t.Fatal(err)
+	fake := &fakeForgeRunner{}
+	service := NewService(cfg)
+	t.Cleanup(service.Close)
+	service.forge = fake
+	setFakeAnvilWorker(service, "http://127.0.0.1:19000")
+
+	_, _ = service.Simulate(context.Background(), model.SimulateRequest{
+		Chain:          "mainnet",
+		BlockNumber:    "1",
+		DecodeInternal: true,
+		Sender:         "0x0000000000000000000000000000000000000001",
+		Target:         "0x0000000000000000000000000000000000000002",
+		Data:           "0x",
+	})
+
+	if len(fake.calls) != 1 {
+		t.Fatalf("forge call count = %d, want 1: %#v", len(fake.calls), fake.calls)
 	}
+	if !containsArg(fake.calls[0], "--decode-internal") {
+		t.Fatalf("decodeInternal=true should add --decode-internal: %#v", fake.calls[0])
+	}
+	if len(fake.inputPayloads) != 1 || !strings.Contains(fake.inputPayloads[0], `"decodeInternal":true`) {
+		t.Fatalf("simulation input should preserve decodeInternal=true: %#v", fake.inputPayloads)
+	}
+}
+
+func TestSimulateExternalProjectBuildsSrcCompilesOverrideAndRunsCopiedTest(t *testing.T) {
+	repoRoot := t.TempDir()
+	testSource := writeSimulationTestHarness(t, repoRoot)
 
 	projectRoot := t.TempDir()
 	cfg := config.Config{
@@ -324,47 +388,49 @@ func TestSimulateExternalProjectBuildsSrcCompilesOverrideAndRunsCopiedScript(t *
 
 	inspectArgs := fake.calls[1]
 	if !hasArgSequence(inspectArgs, "inspect") ||
-		!strings.HasPrefix(inspectArgs[1], "script/TxSimulationStateOverride_") ||
+		!strings.HasPrefix(inspectArgs[1], "test/TxSimulationStateOverride_") ||
 		!strings.HasSuffix(inspectArgs[1], ".sol:OverrideState") ||
 		!hasArgSequence(inspectArgs, "--root", projectRoot) {
 		t.Fatalf("unexpected inspect args: %#v", inspectArgs)
 	}
 
-	scriptArgs := fake.calls[2]
-	scriptHash := sha256.Sum256(scriptSource)
-	wantScriptTarget := filepath.ToSlash(filepath.Join(projectRoot, "script", fmt.Sprintf("TxSimulation_%x.s.sol", scriptHash))) + ":SimulateTxScript"
-	if !hasArgSequence(scriptArgs, "script") ||
-		scriptArgs[1] != wantScriptTarget ||
-		!hasArgSequence(scriptArgs, "--root", projectRoot) ||
-		!hasArgSequence(scriptArgs, "--rpc-url", "http://127.0.0.1:19001") ||
-		!hasArgSequence(scriptArgs, "--etherscan-api-key", "etherscan-test-key") ||
-		!containsArg(scriptArgs, "--json") ||
-		!containsArg(scriptArgs, "0x6000") ||
-		containsArg(scriptArgs, "--fork-block-number") {
-		t.Fatalf("unexpected script args: %#v", scriptArgs)
+	testArgs := fake.calls[2]
+	testHash := sha256.Sum256(testSource)
+	wantMatchPath := fmt.Sprintf("test/TxSimulation_%x.t.sol", testHash)
+	if !hasArgSequence(testArgs, "test") ||
+		!hasArgSequence(testArgs, "--match-path", wantMatchPath) ||
+		!hasArgSequence(testArgs, "--match-test", "testSimulateTx") ||
+		!hasArgSequence(testArgs, "--root", projectRoot) ||
+		!hasArgSequence(testArgs, "--rpc-url", "http://127.0.0.1:19001") ||
+		!hasArgSequence(testArgs, "--etherscan-api-key", "etherscan-test-key") ||
+		!containsArg(testArgs, "--json") ||
+		containsArg(testArgs, "--decode-internal") ||
+		containsArg(testArgs, "0x6000") ||
+		containsArg(testArgs, "--fork-block-number") ||
+		containsArg(testArgs, "--non-interactive") {
+		t.Fatalf("unexpected test args: %#v", testArgs)
 	}
-	if scriptArgs[4] != `[(0x0000000000000000000000000000000000000001,"Sender")]` {
-		t.Fatalf("sender label arg = %q, want default Sender label", scriptArgs[4])
+	if _, ok := envValue(fake.envs[2], inputPathEnvName); !ok {
+		t.Fatalf("forge test env missing input path: %#v", fake.envs)
+	}
+	if len(fake.inputPayloads) != 1 ||
+		!strings.Contains(fake.inputPayloads[0], `"stateOverrideBytecode":"0x6000"`) ||
+		!strings.Contains(fake.inputPayloads[0], `"labelOverrides":[{"account":"0x0000000000000000000000000000000000000001","label":"Sender"}]`) {
+		t.Fatalf("unexpected simulation input: %#v", fake.inputPayloads)
 	}
 
-	entries, err := os.ReadDir(filepath.Join(projectRoot, "script"))
+	entries, err := os.ReadDir(filepath.Join(projectRoot, "test"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(entries) != 0 {
-		t.Fatalf("temporary script files were not cleaned up: %#v", entries)
+		t.Fatalf("temporary test files were not cleaned up: %#v", entries)
 	}
 }
 
-func TestPrepareFoundryExecutionUsesContentBasedScriptCopyWithReferenceCount(t *testing.T) {
+func TestPrepareFoundryExecutionUsesContentBasedTestCopyWithReferenceCount(t *testing.T) {
 	repoRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoRoot, "contracts", "src"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	scriptSource := []byte("// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.0;\ncontract SimulateTxScript {}\n")
-	if err := os.WriteFile(filepath.Join(repoRoot, "contracts", "src", "SimulateTx.s.sol"), scriptSource, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testSource := writeSimulationTestHarness(t, repoRoot)
 
 	projectRoot := t.TempDir()
 	service := NewService(config.Config{
@@ -387,35 +453,32 @@ func TestPrepareFoundryExecutionUsesContentBasedScriptCopyWithReferenceCount(t *
 		t.Fatal(err)
 	}
 
-	scriptHash := sha256.Sum256(scriptSource)
-	wantScriptPath := filepath.Join(projectRoot, "script", fmt.Sprintf("TxSimulation_%x.s.sol", scriptHash))
-	if first.ScriptPath != wantScriptPath || second.ScriptPath != wantScriptPath {
-		t.Fatalf("script paths = %q and %q, want %q", first.ScriptPath, second.ScriptPath, wantScriptPath)
+	testHash := sha256.Sum256(testSource)
+	wantTestPath := filepath.Join(projectRoot, "test", fmt.Sprintf("TxSimulation_%x.t.sol", testHash))
+	if first.TestPath != wantTestPath || second.TestPath != wantTestPath {
+		t.Fatalf("test paths = %q and %q, want %q", first.TestPath, second.TestPath, wantTestPath)
 	}
-	if _, err := os.Stat(wantScriptPath); err != nil {
-		t.Fatalf("script copy missing before cleanup: %v", err)
+	if first.TestMatchPath != fmt.Sprintf("test/TxSimulation_%x.t.sol", testHash) {
+		t.Fatalf("test match path = %q", first.TestMatchPath)
+	}
+	if _, err := os.Stat(wantTestPath); err != nil {
+		t.Fatalf("test copy missing before cleanup: %v", err)
 	}
 
 	first.cleanup()
-	if _, err := os.Stat(wantScriptPath); err != nil {
-		t.Fatalf("script copy removed while still referenced: %v", err)
+	if _, err := os.Stat(wantTestPath); err != nil {
+		t.Fatalf("test copy removed while still referenced: %v", err)
 	}
 
 	second.cleanup()
-	if _, err := os.Stat(wantScriptPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("script copy should be removed after last cleanup, stat err = %v", err)
+	if _, err := os.Stat(wantTestPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("test copy should be removed after last cleanup, stat err = %v", err)
 	}
 }
 
 func TestSimulatePersistsRequestRecord(t *testing.T) {
 	repoRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoRoot, "contracts", "src"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	scriptSource := []byte("// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.0;\ncontract SimulateTxScript {}\n")
-	if err := os.WriteFile(filepath.Join(repoRoot, "contracts", "src", "SimulateTx.s.sol"), scriptSource, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeSimulationTestHarness(t, repoRoot)
 
 	cfg := config.Config{
 		ListenAddr:     "127.0.0.1:0",
@@ -819,95 +882,125 @@ func forgeJSONTrace() string {
 
 func forgeJSONTraceWithCall(success bool, function string) string {
 	status := "Return"
+	testStatus := "Success"
 	if !success {
 		status = "Revert"
+		testStatus = "Failure"
 	}
 	return fmt.Sprintf(`{
-  "returns": {},
-  "success": %t,
-  "raw_logs": [],
-  "traces": [
-    [
-      "Execution",
-      {
-        "arena": [
-          {
-            "parent": null,
-            "children": [1],
-            "idx": 0,
-            "trace": {
-              "depth": 0,
-              "success": %t,
-              "caller": "0x0000000000000000000000000000000000000000",
-              "address": "0x0000000000000000000000000000000000000001",
-              "kind": "CALL",
-              "value": "0x0",
-              "data": "0x",
-              "output": "0x",
-              "gas_used": 1000,
-              "gas_limit": 1000000,
-              "status": "%s",
-              "steps": [],
-              "decoded": {
-                "label": "SimulateTxScript",
-                "return_data": "",
-                "call_data": {
-                  "signature": "run(bytes)",
-                  "args": ["0x"]
+  "test/SimulateTxRunner.t.sol:SimulateTxRunnerTest": {
+    "duration": "1ms",
+    "test_results": {
+      "testSimulateTx()": {
+        "status": "%s",
+        "reason": null,
+        "counterexample": null,
+        "logs": [],
+        "decoded_logs": [],
+        "kind": {"Unit": {"gas": 1500}},
+        "traces": [
+          [
+            "Execution",
+            {
+              "arena": [
+                {
+                  "parent": null,
+                  "children": [1],
+                  "idx": 0,
+                  "trace": {
+                    "depth": 0,
+                    "success": %t,
+                    "caller": "0x0000000000000000000000000000000000000000",
+                    "address": "0x0000000000000000000000000000000000000001",
+                    "kind": "CALL",
+                    "value": "0x0",
+                    "data": "0x",
+                    "output": "0x",
+                    "gas_used": 1000,
+                    "gas_limit": 1000000,
+                    "status": "%s",
+                    "steps": [],
+                    "decoded": {
+                      "label": "SimulateTxRunnerTest",
+                      "return_data": "",
+                      "call_data": {
+                        "signature": "testSimulateTx()",
+                        "args": []
+                      }
+                    }
+                  },
+                  "logs": [],
+                  "ordering": [{"Call": 0}]
+                },
+                {
+                  "parent": 0,
+                  "children": [],
+                  "idx": 1,
+                  "trace": {
+                    "depth": 1,
+                    "success": %t,
+                    "caller": "0x0000000000000000000000000000000000000001",
+                    "address": "%s",
+                    "kind": "CALL",
+                    "value": "0x0",
+                    "data": "0x",
+                    "output": "0x",
+                    "gas_used": 500,
+                    "gas_limit": 100000,
+                    "status": "%s",
+                    "steps": [],
+                    "decoded": {
+                      "label": "WETH9",
+                      "return_data": "",
+                      "call_data": {
+                        "signature": "%s(address,uint256)",
+                        "args": ["0x0000000000000000000000000000000000000003", "1"]
+                      }
+                    }
+                  },
+                  "logs": [],
+                  "ordering": []
                 }
-              }
-            },
-            "logs": [],
-            "ordering": [{"Call": 0}]
-          },
-          {
-            "parent": 0,
-            "children": [],
-            "idx": 1,
-            "trace": {
-              "depth": 1,
-              "success": %t,
-              "caller": "0x0000000000000000000000000000000000000001",
-              "address": "%s",
-              "kind": "CALL",
-              "value": "0x0",
-              "data": "0x",
-              "output": "0x",
-              "gas_used": 500,
-              "gas_limit": 100000,
-              "status": "%s",
-              "steps": [],
-              "decoded": {
-                "label": "WETH9",
-                "return_data": "",
-                "call_data": {
-                  "signature": "%s(address,uint256)",
-                  "args": ["0x0000000000000000000000000000000000000003", "1"]
-                }
-              }
-            },
-            "logs": [],
-            "ordering": []
-          }
-        ]
+              ]
+            }
+          ]
+        ],
+        "labeled_addresses": {},
+        "duration": "1ms",
+        "breakpoints": {},
+        "gas_snapshots": {}
       }
-    ]
-  ],
-  "gas_used": 1500,
-  "labeled_addresses": {},
-  "returned": "0x",
-  "address": null
-}`, success, success, status, success, wethAddress, status, function)
+    },
+    "warnings": []
+  }
+}`, testStatus, success, status, success, wethAddress, status, function)
 }
 
 type fakeForgeRunner struct {
-	calls   [][]string
-	results []forge.Result
+	calls         [][]string
+	envs          [][]string
+	inputPayloads []string
+	results       []forge.Result
 }
 
 func (f *fakeForgeRunner) Run(_ context.Context, args ...string) forge.Result {
+	return f.run(nil, args...)
+}
+
+func (f *fakeForgeRunner) RunWithEnv(_ context.Context, env []string, args ...string) forge.Result {
+	return f.run(env, args...)
+}
+
+func (f *fakeForgeRunner) run(env []string, args ...string) forge.Result {
 	copiedArgs := append([]string(nil), args...)
 	f.calls = append(f.calls, copiedArgs)
+	f.envs = append(f.envs, append([]string(nil), env...))
+	if inputPath, ok := envValue(env, inputPathEnvName); ok {
+		payload, err := os.ReadFile(inputPath)
+		if err == nil {
+			f.inputPayloads = append(f.inputPayloads, string(payload))
+		}
+	}
 	if len(f.results) == 0 {
 		return forge.Result{}
 	}
@@ -993,6 +1086,24 @@ func containsArg(args []string, want string) bool {
 	return false
 }
 
+func hasEnvPrefix(env []string, prefix string) bool {
+	_, ok := envValueByPrefix(env, prefix)
+	return ok
+}
+
+func envValue(env []string, key string) (string, bool) {
+	return envValueByPrefix(env, key+"=")
+}
+
+func envValueByPrefix(env []string, prefix string) (string, bool) {
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix), true
+		}
+	}
+	return "", false
+}
+
 func mustBigInt(t *testing.T, value string) *big.Int {
 	t.Helper()
 
@@ -1025,7 +1136,7 @@ func TestSimulateResponseJSONOmitsInternalFields(t *testing.T) {
 		Stdout:         "stdout",
 		Stderr:         "stderr",
 		RunDir:         "/tmp/run",
-		ScriptPath:     "/tmp/script.sol",
+		TestPath:       "/tmp/test.sol",
 	}
 
 	encoded, err := json.Marshal(resp)
@@ -1033,7 +1144,7 @@ func TestSimulateResponseJSONOmitsInternalFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := string(encoded)
-	for _, field := range []string{"stdout", "stderr", "runDir", "scriptPath"} {
+	for _, field := range []string{"stdout", "stderr", "runDir", "testPath"} {
 		if strings.Contains(payload, field) {
 			t.Fatalf("response JSON should not include %q: %s", field, payload)
 		}

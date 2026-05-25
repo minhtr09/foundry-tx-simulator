@@ -22,3 +22,6 @@ jobs:
 
       - name: Validate Compose config
         run: docker compose config
+
+      - name: Build backend image
+        run: docker compose build backend

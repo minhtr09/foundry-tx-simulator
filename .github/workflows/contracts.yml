@@ -11,6 +11,7 @@ on:
 
 env:
   FOUNDRY_PROFILE: ci
+  FOUNDRY_KYBER_TAG: nightly-04bdb43d9435cecec89abc17b3dcb618086c0d99
 
 jobs:
   contracts:
@@ -27,17 +28,20 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install Foundry Kyber
+        working-directory: ${{ github.workspace }}
+        run: |
+          scripts/install-foundry-kyber.sh
+          echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
 
       - name: Show Forge version
-        run: forge --version
+        run: forge-kyber --version
 
       - name: Run Forge fmt
-        run: forge fmt --check
+        run: forge-kyber fmt --check
 
       - name: Run Forge build
-        run: forge build --sizes
+        run: forge-kyber build --sizes
 
       - name: Run Forge tests
-        run: forge test -vvv
+        run: forge-kyber test -vvv

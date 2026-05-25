@@ -67,6 +67,9 @@ func TestOpenAPIEndpoint(t *testing.T) {
 	if _, ok := properties["etherscanApiKey"]; ok {
 		t.Fatalf("etherscanApiKey should be backend config, not a request property: %#v", properties)
 	}
+	if _, ok := properties["decodeInternal"]; !ok {
+		t.Fatalf("decodeInternal should be a request property: %#v", properties)
+	}
 }
 
 func TestSwaggerUIEndpoint(t *testing.T) {

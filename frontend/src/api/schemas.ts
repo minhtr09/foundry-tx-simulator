@@ -73,9 +73,8 @@ export const simulateRequestSchema = z.object({
   erc20ApprovalOverrides: z.array(erc20ApprovalOverrideSchema).optional(),
   erc721ApprovalOverrides: z.array(erc721ApprovalOverrideSchema).optional(),
   stateOverride: stateOverrideSchema.optional(),
-  stateOverrideCode: z.string().optional(),
-  stateOverrideContractName: z.string().optional(),
   compiler: compilerConfigSchema.optional(),
+  decodeInternal: z.boolean().default(false),
   sender: addressSchema,
   target: addressSchema,
   data: bytesSchema

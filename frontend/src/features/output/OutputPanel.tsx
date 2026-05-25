@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction, type UIEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type UIEvent } from "react";
 import type { ExpandMode, OutputView } from "../../app/form";
 import type { AddressLabels } from "../../lib/labels";
 import type { SimulateResponse } from "../../api/types";
@@ -83,6 +83,7 @@ export default function OutputPanel(props: OutputPanelProps) {
   const hasTraceQuery = traceSearchQuery.trim().length > 0;
   const hasTraceMatches = traceMatchCount > 0;
   const traceMatchLabel = hasTraceQuery && hasTraceMatches ? `${traceMatchIndex + 1}/${traceMatchCount}` : "0/0";
+  const jsonOutput = useMemo(() => (outputView === "json" ? formatResponseJSON(response) : ""), [outputView, response]);
 
   return (
     <section className="workspace" aria-label="Simulation output">
@@ -220,7 +221,7 @@ export default function OutputPanel(props: OutputPanelProps) {
             <h3>Raw Response</h3>
           </div>
           <div className="output-scroll" ref={scrollAreaRef} onScroll={handleScroll}>
-            <pre className="json-output">{JSON.stringify(response ?? {}, null, 2)}</pre>
+            <pre className="json-output">{jsonOutput}</pre>
           </div>
         </section>
       )}
@@ -250,4 +251,58 @@ function readScrollTop(element: HTMLElement | null): number {
 
 function restoreScrollTop(element: HTMLElement | null, scrollTop: number) {
   element?.scrollTo({ top: scrollTop });
+}
+
+function formatResponseJSON(response: SimulateResponse | null): string {
+  if (!response) {
+    return "{}";
+  }
+  return stringifyJSON({
+    ...response,
+    trace: parseTraceJSON(response.trace)
+  });
+}
+
+function parseTraceJSON(trace: string): unknown {
+  const trimmed = trace.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trace;
+  }
+}
+
+function stringifyJSON(value: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return (
+      JSON.stringify(
+        value,
+        (_key, next) => {
+          if (typeof next === "bigint") {
+            return next.toString();
+          }
+          if (next && typeof next === "object") {
+            if (seen.has(next)) {
+              return "[Circular]";
+            }
+            seen.add(next);
+          }
+          return next;
+        },
+        2
+      ) ?? "{}"
+    );
+  } catch (err) {
+    return JSON.stringify(
+      {
+        error: `Unable to render response JSON: ${err instanceof Error ? err.message : String(err)}`
+      },
+      null,
+      2
+    );
+  }
 }

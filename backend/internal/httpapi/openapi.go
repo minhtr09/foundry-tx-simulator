@@ -210,10 +210,11 @@ func openAPISchemaCustomizer(_ string, t reflect.Type, tag reflect.StructTag, sc
 
 func enrichOpenAPISchemas(schemas openapi3.Schemas) {
 	setPropertyExample(schemas, "SimulateRequest", "chain", "mainnet")
-	setPropertyDescription(schemas, "SimulateRequest", "projectPath", "Optional Foundry project root. When set, the backend runs `forge build src`, copies `contracts/src/SimulateTx.s.sol` under this project's script folder, and runs forge script with this root.")
+	setPropertyDescription(schemas, "SimulateRequest", "projectPath", "Optional Foundry project root. When set, the backend runs `forge-kyber build src`, copies the simulation test harness under this project's test folder, and runs forge-kyber test with this root.")
 	setPropertyExample(schemas, "SimulateRequest", "projectPath", "~/project")
-	setPropertyDeprecated(schemas, "SimulateRequest", "stateOverrideCode")
-	setPropertyDeprecated(schemas, "SimulateRequest", "stateOverrideContractName")
+	setPropertyDescription(schemas, "SimulateRequest", "stateOverrideBytecode", "Backend-generated compiled state override bytecode for the simulation test input. Client requests should omit this field.")
+	setPropertyDescription(schemas, "SimulateRequest", "decodeInternal", "When true, passes --decode-internal to forge-kyber test. Defaults to false.")
+	setPropertyDefault(schemas, "SimulateRequest", "decodeInternal", false)
 	setPropertyExample(schemas, "SimulateRequest", "sender", "0x0000000000000000000000000000000000000001")
 	setPropertyExample(schemas, "SimulateRequest", "target", "0x0000000000000000000000000000000000000002")
 	setPropertyExample(schemas, "SimulateRequest", "data", "0x")
@@ -235,7 +236,7 @@ func enrichOpenAPISchemas(schemas openapi3.Schemas) {
 	setPropertyExample(schemas, "ERC721ApprovalOverride", "spender", "0x0000000000000000000000000000000000000002")
 	setPropertyExample(schemas, "StateOverride", "contractName", "MyStateOverride")
 
-	setPropertyDescription(schemas, "CompilerConfig", "use", "Maps to forge script --use <SOLC_VERSION>. Omitted unless explicitly provided.")
+	setPropertyDescription(schemas, "CompilerConfig", "use", "Maps to forge-kyber --use <SOLC_VERSION>. Omitted unless explicitly provided.")
 	setPropertyDescription(schemas, "CompilerConfig", "offline", "Maps to --offline.")
 	setPropertyDescription(schemas, "CompilerConfig", "noAutoDetect", "Maps to --no-auto-detect.")
 	setPropertyDescription(schemas, "CompilerConfig", "viaIR", "Maps to --via-ir. Defaults to true for this backend.")
@@ -286,7 +287,7 @@ func addOpenAPIOperations(spec *openapi3.T) {
 	))
 
 	op := postOperation(
-		"Run a Forge script simulation and return the raw Forge JSON trace with fund-flow analysis",
+		"Run a forge-kyber test simulation and return the execution trace with fund-flow analysis",
 		"SimulateRequest",
 		"SimulateResponse",
 	)
@@ -387,12 +388,6 @@ func setPropertyDescription(schemas openapi3.Schemas, schemaName string, propert
 func setPropertyExample(schemas openapi3.Schemas, schemaName string, propertyName string, example any) {
 	if property := propertyValue(schemas, schemaName, propertyName); property != nil {
 		property.Example = example
-	}
-}
-
-func setPropertyDeprecated(schemas openapi3.Schemas, schemaName string, propertyName string) {
-	if property := propertyValue(schemas, schemaName, propertyName); property != nil {
-		property.Deprecated = true
 	}
 }
 

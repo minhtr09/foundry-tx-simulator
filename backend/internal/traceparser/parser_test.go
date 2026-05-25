@@ -1,6 +1,7 @@
 package traceparser
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -60,12 +61,17 @@ func TestParseOutputForgeJSONTrace(t *testing.T) {
   "address": null
 }`
 
-	parsed, err := ParseOutput(output)
+	parsed, err := ParseOutput(forgeTestOutput(output))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(parsed.Trace, `"traces"`) {
-		t.Fatalf("trace should preserve formatted forge JSON, got:\n%s", parsed.Trace)
+		t.Fatalf("trace should include execution traces, got:\n%s", parsed.Trace)
+	}
+	for _, notWant := range []string{`"test_results"`, `"returns"`} {
+		if strings.Contains(parsed.Trace, notWant) {
+			t.Fatalf("trace should only return the execution trace, found %s in:\n%s", notWant, parsed.Trace)
+		}
 	}
 	if len(parsed.ERC20Transfers) != 1 {
 		t.Fatalf("erc20 transfers = %#v, want one", parsed.ERC20Transfers)
@@ -76,6 +82,78 @@ func TestParseOutputForgeJSONTrace(t *testing.T) {
 	}
 	if transfer.From != "0x0000000000000000000000000000000000000001" || transfer.To != "0x0000000000000000000000000000000000000003" || transfer.Amount != "1" {
 		t.Fatalf("unexpected transfer: %#v", transfer)
+	}
+}
+
+func TestParseOutputReturnsOnlyExecutionTrace(t *testing.T) {
+	output := `{
+  "test/SimulateTxRunner.t.sol:SimulateTxRunnerTest": {
+    "test_results": {
+      "testSimulateTx()": {
+        "status": "Success",
+        "traces": [
+          [
+            "Setup",
+            {
+              "arena": [
+                {
+                  "parent": null,
+                  "children": [],
+                  "idx": 0,
+                  "trace": {
+                    "address": "0x0000000000000000000000000000000000000001",
+                    "kind": "CALL",
+                    "decoded": {
+                      "label": "SetupOnly",
+                      "call_data": {"signature": "setUp()", "args": []}
+                    }
+                  },
+                  "logs": []
+                }
+              ]
+            }
+          ],
+          [
+            "Execution",
+            {
+              "arena": [
+                {
+                  "parent": null,
+                  "children": [],
+                  "idx": 0,
+                  "trace": {
+                    "address": "0x0000000000000000000000000000000000000002",
+                    "kind": "CALL",
+                    "decoded": {
+                      "label": "ExecutionOnly",
+                      "call_data": {"signature": "testSimulateTx()", "args": []}
+                    }
+                  },
+                  "logs": []
+                }
+              ]
+            }
+          ]
+        ],
+        "labeled_addresses": {
+          "0x0000000000000000000000000000000000000002": "ExecutionOnly"
+        }
+      }
+    }
+  }
+}`
+
+	parsed, err := ParseOutput(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parsed.Trace, `"Execution"`) || !strings.Contains(parsed.Trace, "ExecutionOnly") {
+		t.Fatalf("trace should include the execution trace, got:\n%s", parsed.Trace)
+	}
+	for _, notWant := range []string{`"Setup"`, "SetupOnly", `"test_results"`} {
+		if strings.Contains(parsed.Trace, notWant) {
+			t.Fatalf("trace should exclude %s, got:\n%s", notWant, parsed.Trace)
+		}
 	}
 }
 
@@ -163,7 +241,7 @@ func TestParseOutputERC20TransferUsesLastParentZeroNodeAndNonDelegateContext(t *
   "address": null
 }`
 
-	parsed, err := ParseOutput(output)
+	parsed, err := ParseOutput(forgeTestOutput(output))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +307,7 @@ func TestParseOutputERC20TransferUsesCreateFrameAddress(t *testing.T) {
   "address": null
 }`
 
-	parsed, err := ParseOutput(output)
+	parsed, err := ParseOutput(forgeTestOutput(output))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +377,7 @@ func TestParseOutputSkipsWholeRevertedTransaction(t *testing.T) {
   "address": null
 }`
 
-	parsed, err := ParseOutput(output)
+	parsed, err := ParseOutput(forgeTestOutput(output))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +496,7 @@ func TestParseOutputSkipsRevertedBranch(t *testing.T) {
   "address": null
 }`
 
-	parsed, err := ParseOutput(output)
+	parsed, err := ParseOutput(forgeTestOutput(output))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +568,7 @@ func TestParseOutputPreservesDuplicateTransfers(t *testing.T) {
   "address": null
 }`
 
-	parsed, err := ParseOutput(output)
+	parsed, err := ParseOutput(forgeTestOutput(output))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,9 +579,20 @@ func TestParseOutputPreservesDuplicateTransfers(t *testing.T) {
 
 func TestParseOutputRejectsTextTrace(t *testing.T) {
 	_, err := ParseOutput(`Traces:
-  [252850] SimulateTxScript::run()
+  [252850] SimulateTxRunnerTest::testSimulateTx()
     └─ ← [Return]`)
 	if err == nil {
 		t.Fatal("expected text trace to fail JSON parsing")
 	}
+}
+
+func forgeTestOutput(output string) string {
+	raw := forgeJSONPayload(output)
+	return fmt.Sprintf(`{
+  "test/SimulateTxRunner.t.sol:SimulateTxRunnerTest": {
+    "test_results": {
+      "testSimulateTx()": %s
+    }
+  }
+}`, raw)
 }

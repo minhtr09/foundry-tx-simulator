@@ -329,6 +329,11 @@
   color: var(--gas);
 }
 
+.trace-value {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
 .trace-children {
   margin-left: var(--trace-indent);
 }

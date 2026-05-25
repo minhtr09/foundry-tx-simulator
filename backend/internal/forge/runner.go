@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -23,9 +24,20 @@ type Result struct {
 }
 
 func (r Runner) Run(ctx context.Context, args ...string) Result {
+	return r.run(ctx, nil, args...)
+}
+
+func (r Runner) RunWithEnv(ctx context.Context, env []string, args ...string) Result {
+	return r.run(ctx, env, args...)
+}
+
+func (r Runner) run(ctx context.Context, env []string, args ...string) Result {
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, r.Bin, args...)
 	cmd.Dir = r.RepoRoot
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

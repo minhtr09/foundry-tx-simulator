@@ -6,8 +6,8 @@ work_dir: "/data/runs"
 project_cache_path: "/data/runs/projects.json"
 timeout_seconds: 300
 max_concurrent_runs: 1
-forge_bin: "forge"
-anvil_bin: "anvil"
+forge_bin: "forge-kyber"
+anvil_bin: "anvil-kyber"
 anvil_host: "127.0.0.1"
 anvil_port_start: 18545
 etherscan_api_key: "${ETHERSCAN_API_KEY}"

@@ -16,9 +16,9 @@ type SimulateRequest struct {
 	ERC20ApprovalOverrides  []ERC20ApprovalOverride  `json:"erc20ApprovalOverrides,omitempty" validate:"dive"`
 	ERC721ApprovalOverrides []ERC721ApprovalOverride `json:"erc721ApprovalOverrides,omitempty" validate:"dive"`
 	StateOverride           *StateOverride           `json:"stateOverride,omitempty"`
-	StateOverrideCode       string                   `json:"stateOverrideCode,omitempty"`
-	StateOverrideContract   string                   `json:"stateOverrideContractName,omitempty"`
+	StateOverrideBytecode   string                   `json:"stateOverrideBytecode,omitempty" validate:"hex_bytes"`
 	Compiler                *CompilerConfig          `json:"compiler,omitempty"`
+	DecodeInternal          bool                     `json:"decodeInternal"`
 	Sender                  string                   `json:"sender" validate:"required,eth_address"`
 	Target                  string                   `json:"target" validate:"required,eth_address"`
 	Data                    string                   `json:"data" validate:"hex_bytes"`
@@ -104,7 +104,7 @@ type SimulateResponse struct {
 	Stderr          string           `json:"-"`
 	Error           string           `json:"error,omitempty"`
 	RunDir          string           `json:"-"`
-	ScriptPath      string           `json:"-"`
+	TestPath        string           `json:"-"`
 }
 
 type ErrorResponse struct {
@@ -142,13 +142,6 @@ type UserUSDChange struct {
 }
 
 type Uint256 string
-
-func (req SimulateRequest) StateOverrideSourceAndName() (string, string) {
-	if req.StateOverride != nil {
-		return req.StateOverride.Source, req.StateOverride.ContractName
-	}
-	return req.StateOverrideCode, req.StateOverrideContract
-}
 
 func (u *Uint256) UnmarshalJSON(data []byte) error {
 	raw := strings.TrimSpace(string(data))
@@ -195,6 +188,10 @@ func (u *Uint256) UnmarshalJSON(data []byte) error {
 
 	*u = Uint256(n.String())
 	return nil
+}
+
+func (u Uint256) MarshalJSON() ([]byte, error) {
+	return json.Marshal(u.String())
 }
 
 func (u Uint256) String() string {

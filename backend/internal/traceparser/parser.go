@@ -16,13 +16,26 @@ type ParsedOutput struct {
 	ERC20Transfers []model.ERC20Transfer
 }
 
-type forgeOutput struct {
-	Traces []forgeTraceEntry `json:"traces"`
+type forgeTestSuite struct {
+	TestResults map[string]forgeTestResult `json:"test_results"`
+}
+
+type forgeTestResult struct {
+	Status           string            `json:"status"`
+	Reason           *string           `json:"reason"`
+	Traces           []forgeTraceEntry `json:"traces"`
+	LabeledAddresses map[string]string `json:"labeled_addresses"`
 }
 
 type forgeTraceEntry struct {
-	Kind string
-	Body forgeTraceBody
+	Kind    string
+	Body    forgeTraceBody
+	RawBody json.RawMessage
+}
+
+type executionTraceOutput struct {
+	Traces           []forgeTraceEntry `json:"traces"`
+	LabeledAddresses map[string]string `json:"labeled_addresses,omitempty"`
 }
 
 type forgeTraceBody struct {
@@ -67,28 +80,57 @@ func ParseOutput(output string) (ParsedOutput, error) {
 		return ParsedOutput{}, fmt.Errorf("forge json trace output is empty")
 	}
 
-	var payload forgeOutput
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ParsedOutput{}, fmt.Errorf("decode forge json trace: %w", err)
+	var suites map[string]forgeTestSuite
+	if err := json.Unmarshal(raw, &suites); err != nil {
+		return ParsedOutput{}, fmt.Errorf("decode forge test json trace: %w", err)
 	}
-	if len(payload.Traces) == 0 {
-		return ParsedOutput{}, fmt.Errorf("forge json trace has no traces")
+	results := forgeTestResults(suites)
+	if len(results) == 0 {
+		return ParsedOutput{}, fmt.Errorf("forge test json trace has no test results")
 	}
 
-	hasArena := false
+	traceOutput := executionTraceOutput{
+		LabeledAddresses: make(map[string]string),
+	}
 	transfers := make([]model.ERC20Transfer, 0)
-	for _, trace := range payload.Traces {
-		hasArena = hasArena || len(trace.Body.Arena) > 0
-		transfers = append(transfers, trace.erc20Transfers()...)
+	for _, result := range results {
+		for address, label := range result.LabeledAddresses {
+			traceOutput.LabeledAddresses[address] = label
+		}
+		for _, trace := range result.Traces {
+			if !strings.EqualFold(strings.TrimSpace(trace.Kind), "Execution") {
+				continue
+			}
+			traceOutput.Traces = append(traceOutput.Traces, trace)
+			transfers = append(transfers, trace.erc20Transfers()...)
+		}
 	}
-	if !hasArena {
-		return ParsedOutput{}, fmt.Errorf("forge json trace has no arena nodes")
+	if len(traceOutput.Traces) == 0 {
+		return ParsedOutput{}, fmt.Errorf("forge test json trace has no execution traces")
 	}
+	for _, trace := range traceOutput.Traces {
+		if len(trace.Body.Arena) > 0 {
+			rawTrace, err := json.Marshal(traceOutput)
+			if err != nil {
+				return ParsedOutput{}, fmt.Errorf("encode execution trace: %w", err)
+			}
+			return ParsedOutput{
+				Trace:          indentJSON(rawTrace),
+				ERC20Transfers: transfers,
+			}, nil
+		}
+	}
+	return ParsedOutput{}, fmt.Errorf("forge test json trace has no arena nodes")
+}
 
-	return ParsedOutput{
-		Trace:          indentJSON(raw),
-		ERC20Transfers: transfers,
-	}, nil
+func forgeTestResults(suites map[string]forgeTestSuite) []forgeTestResult {
+	results := make([]forgeTestResult, 0)
+	for _, suite := range suites {
+		for _, result := range suite.TestResults {
+			results = append(results, result)
+		}
+	}
+	return results
 }
 
 func forgeJSONPayload(output string) []byte {
@@ -125,7 +167,23 @@ func (entry *forgeTraceEntry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(tuple[0], &entry.Kind); err != nil {
 		return err
 	}
+	entry.RawBody = append(entry.RawBody[:0], tuple[1]...)
 	return json.Unmarshal(tuple[1], &entry.Body)
+}
+
+func (entry forgeTraceEntry) MarshalJSON() ([]byte, error) {
+	rawKind, err := json.Marshal(entry.Kind)
+	if err != nil {
+		return nil, err
+	}
+	rawBody := entry.RawBody
+	if len(rawBody) == 0 {
+		rawBody, err = json.Marshal(entry.Body)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal([2]json.RawMessage{rawKind, rawBody})
 }
 
 func (entry forgeTraceEntry) erc20Transfers() []model.ERC20Transfer {
@@ -257,7 +315,7 @@ func topicAddress(topic string) string {
 
 func hexUintToDecimal(value string) string {
 	n, ok := new(big.Int).SetString(strings.TrimPrefix(normalizeHex(value), "0x"), 16)
-	if !ok {
+	if !ok || n.BitLen() > 256 {
 		return ""
 	}
 	return n.String()

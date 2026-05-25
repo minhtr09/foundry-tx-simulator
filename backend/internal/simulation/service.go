@@ -3,6 +3,7 @@ package simulation
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -24,15 +25,16 @@ import (
 )
 
 const (
-	scriptContractName = "SimulateTxScript"
-	localFoundryDir    = "contracts"
-	localScriptRelPath = "src/SimulateTx.s.sol"
-	localScriptTarget  = localFoundryDir + "/" + localScriptRelPath + ":" + scriptContractName
-	senderLabel        = "Sender"
+	localFoundryDir        = "contracts"
+	localSimulationRelPath = "test/SimulateTxRunner.t.sol"
+	simulationTestName     = "testSimulateTx"
+	inputPathEnvName       = "TXSIM_INPUT_PATH"
+	senderLabel            = "Sender"
 )
 
 type forgeRunner interface {
 	Run(ctx context.Context, args ...string) forge.Result
+	RunWithEnv(ctx context.Context, env []string, args ...string) forge.Result
 }
 
 type priceProvider interface {
@@ -50,18 +52,18 @@ type Service struct {
 	prices  priceProvider
 	workers chan *simulationWorker
 
-	scriptCopiesMu sync.Mutex
-	scriptCopies   map[string]int
+	testCopiesMu sync.Mutex
+	testCopies   map[string]int
 }
 
 type foundryExecution struct {
-	Root         string
-	ScriptTarget string
-	ScriptDir    string
-	ScriptPath   string
-	External     bool
-	tempFiles    []string
-	cleanupFuncs []func()
+	Root          string
+	TestDir       string
+	TestPath      string
+	TestMatchPath string
+	External      bool
+	tempFiles     []string
+	cleanupFuncs  []func()
 }
 
 type simulationWorker struct {
@@ -76,9 +78,9 @@ func NewService(cfg config.Config) *Service {
 			Bin:      cfg.ForgeBin,
 			RepoRoot: cfg.RepoRoot,
 		},
-		prices:       prices.DefaultProvider(cfg.RPCURLs),
-		workers:      newSimulationWorkers(cfg),
-		scriptCopies: make(map[string]int),
+		prices:     prices.DefaultProvider(cfg.RPCURLs),
+		workers:    newSimulationWorkers(cfg),
+		testCopies: make(map[string]int),
 	}
 }
 
@@ -176,7 +178,12 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 		return finish(http.StatusBadRequest)
 	}
 	etherscanAPIKey := strings.TrimSpace(s.cfg.EtherscanAPIKey)
-	source, contractName := req.StateOverrideSourceAndName()
+	source := ""
+	contractName := ""
+	if req.StateOverride != nil {
+		source = req.StateOverride.Source
+		contractName = req.StateOverride.ContractName
+	}
 	hasStateOverride := strings.TrimSpace(source) != ""
 
 	slog.Info(
@@ -220,13 +227,13 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 		return finish(http.StatusInternalServerError)
 	}
 	defer execution.cleanup()
-	resp.ScriptPath = execution.ScriptPath
+	resp.TestPath = execution.TestPath
 	slog.Info(
 		"foundry execution prepared",
 		"run_id", runID,
 		"root", execution.Root,
-		"script_target", execution.ScriptTarget,
-		"script_path", execution.ScriptPath,
+		"test_path", execution.TestPath,
+		"test_match_path", execution.TestMatchPath,
 		"external_project", execution.External,
 	)
 
@@ -268,6 +275,15 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 		slog.Info("state override compile completed", "run_id", runID, "contract", contractName, "bytecode_bytes", normalizedHexBytes(stateBytecode))
 	}
 
+	testInput := req
+	testInput.StateOverrideBytecode = stateBytecode
+	inputPath, err := s.writeSimulationInput(&execution, runID, testInput)
+	if err != nil {
+		resp.Error = "write simulation input: " + err.Error()
+		return finish(http.StatusInternalServerError)
+	}
+	slog.Info("simulation input written", "run_id", runID, "path", inputPath)
+
 	slog.Info("anvil fork prepare started", "run_id", runID, "worker_id", worker.id, "chain", req.Chain, "block_number", req.BlockNumber.String())
 	anvilRPCURL, err := worker.anvil.Fork(ctx, rpcURL, req.BlockNumber)
 	if err != nil {
@@ -277,19 +293,16 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 	slog.Info("anvil fork ready", "run_id", runID, "worker_id", worker.id, "anvil_rpc", anvilRPCURL)
 
 	forgeArgs := []string{
-		"script",
-		execution.ScriptTarget,
-		"--sig",
-		"run((address,string)[],(address,address,uint256)[],(address,address,address,uint256)[],(address,address,address,uint256)[],bytes,address,address,bytes)",
-	}
-	forgeArgs = append(forgeArgs, solidity.ForgeRunArgs(req, stateBytecode)...)
-	forgeArgs = append(forgeArgs,
+		"test",
+		"--match-path", execution.TestMatchPath,
+		"--match-test", simulationTestName,
 		"--root", execution.Root,
 		"--rpc-url", anvilRPCURL,
-		"-vvvvv",
 		"--json",
-		"--non-interactive",
-	)
+	}
+	if req.DecodeInternal {
+		forgeArgs = append(forgeArgs, "--decode-internal")
+	}
 	compilerArgs := solidity.ForgeCompilerArgs(req.Compiler)
 	forgeArgs = append(forgeArgs, compilerArgs...)
 	if etherscanAPIKey != "" {
@@ -297,15 +310,17 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 	}
 
 	slog.Info(
-		"forge script started",
+		"forge test started",
 		"run_id", runID,
 		"root", execution.Root,
-		"script_target", execution.ScriptTarget,
+		"match_path", execution.TestMatchPath,
+		"match_test", simulationTestName,
 		"anvil_rpc", anvilRPCURL,
+		"decode_internal", req.DecodeInternal,
 		"compiler_args", len(compilerArgs),
 	)
-	result := s.forge.Run(ctx, forgeArgs...)
-	logForgeResult(runID, "forge script", result)
+	result := s.forge.RunWithEnv(ctx, []string{inputPathEnvName + "=" + inputPath}, forgeArgs...)
+	logForgeResult(runID, "forge test", result)
 	resp.DurationMillis = time.Since(start).Milliseconds()
 	resp.Stdout = solidity.RedactRPC(solidity.StripANSI(result.Stdout), rpcURL, req.Chain)
 	resp.Stdout = strings.ReplaceAll(resp.Stdout, anvilRPCURL, "<anvil-rpc-url>")
@@ -318,7 +333,7 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 	if err != nil {
 		resp.Success = false
 		resp.Trace = combined
-		resp.Error = "parse forge json trace: " + err.Error()
+		resp.Error = "parse forge test json trace: " + err.Error()
 		return finish(http.StatusBadGateway)
 	}
 	resp.Trace = parsed.Trace
@@ -467,76 +482,76 @@ func validateCompilerConfig(config *model.CompilerConfig) error {
 
 func (s *Service) prepareFoundryExecution(req *model.SimulateRequest, runID string) (foundryExecution, error) {
 	localRoot := filepath.Join(s.cfg.RepoRoot, localFoundryDir)
-	localScriptPath := filepath.Join(localRoot, filepath.FromSlash(localScriptRelPath))
+	localTestPath := filepath.Join(localRoot, filepath.FromSlash(localSimulationRelPath))
 	if req.ProjectPath == "" {
 		return foundryExecution{
-			Root:         localRoot,
-			ScriptTarget: localScriptTarget,
-			ScriptPath:   localScriptPath,
+			Root:          localRoot,
+			TestPath:      localTestPath,
+			TestMatchPath: filepath.ToSlash(localSimulationRelPath),
 		}, nil
 	}
 
 	execution := foundryExecution{
-		Root:      req.ProjectPath,
-		ScriptDir: filepath.Join(req.ProjectPath, "script"),
-		External:  true,
+		Root:     req.ProjectPath,
+		TestDir:  filepath.Join(req.ProjectPath, "test"),
+		External: true,
 	}
-	if err := os.MkdirAll(execution.ScriptDir, 0o755); err != nil {
+	if err := os.MkdirAll(execution.TestDir, 0o755); err != nil {
 		return foundryExecution{}, err
 	}
 
-	source, err := os.ReadFile(localScriptPath)
+	source, err := os.ReadFile(localTestPath)
 	if err != nil {
 		return foundryExecution{}, err
 	}
 
-	scriptName := deterministicScriptName(source)
-	scriptPath := filepath.Join(execution.ScriptDir, scriptName)
-	releaseScriptCopy, err := s.retainScriptCopy(scriptPath, source)
+	testName := deterministicTestName(source)
+	testPath := filepath.Join(execution.TestDir, testName)
+	releaseTestCopy, err := s.retainTestCopy(testPath, source)
 	if err != nil {
 		return foundryExecution{}, err
 	}
 
-	execution.ScriptPath = scriptPath
-	execution.ScriptTarget = filepath.ToSlash(scriptPath) + ":" + scriptContractName
-	execution.cleanupFuncs = append(execution.cleanupFuncs, releaseScriptCopy)
+	execution.TestPath = testPath
+	execution.TestMatchPath = filepath.ToSlash(filepath.Join("test", testName))
+	execution.cleanupFuncs = append(execution.cleanupFuncs, releaseTestCopy)
 	return execution, nil
 }
 
-func deterministicScriptName(source []byte) string {
+func deterministicTestName(source []byte) string {
 	hash := sha256.Sum256(source)
-	return fmt.Sprintf("TxSimulation_%x.s.sol", hash)
+	return fmt.Sprintf("TxSimulation_%x.t.sol", hash)
 }
 
-func (s *Service) retainScriptCopy(scriptPath string, source []byte) (func(), error) {
-	s.scriptCopiesMu.Lock()
-	defer s.scriptCopiesMu.Unlock()
+func (s *Service) retainTestCopy(testPath string, source []byte) (func(), error) {
+	s.testCopiesMu.Lock()
+	defer s.testCopiesMu.Unlock()
 
-	if s.scriptCopies == nil {
-		s.scriptCopies = make(map[string]int)
+	if s.testCopies == nil {
+		s.testCopies = make(map[string]int)
 	}
-	if s.scriptCopies[scriptPath] == 0 {
-		if err := os.WriteFile(scriptPath, source, 0o644); err != nil {
+	if s.testCopies[testPath] == 0 {
+		if err := os.WriteFile(testPath, source, 0o644); err != nil {
 			return nil, err
 		}
 	}
-	s.scriptCopies[scriptPath]++
+	s.testCopies[testPath]++
 
 	return func() {
-		s.releaseScriptCopy(scriptPath)
+		s.releaseTestCopy(testPath)
 	}, nil
 }
 
-func (s *Service) releaseScriptCopy(scriptPath string) {
-	s.scriptCopiesMu.Lock()
-	defer s.scriptCopiesMu.Unlock()
+func (s *Service) releaseTestCopy(testPath string) {
+	s.testCopiesMu.Lock()
+	defer s.testCopiesMu.Unlock()
 
-	count := s.scriptCopies[scriptPath]
+	count := s.testCopies[testPath]
 	if count <= 1 {
-		delete(s.scriptCopies, scriptPath)
-		_ = os.Remove(scriptPath)
+		delete(s.testCopies, testPath)
+		_ = os.Remove(testPath)
 	} else {
-		s.scriptCopies[scriptPath] = count - 1
+		s.testCopies[testPath] = count - 1
 	}
 }
 
@@ -548,7 +563,7 @@ func (s *Service) buildProjectSrc(ctx context.Context, execution foundryExecutio
 
 func (s *Service) writeStateOverrideSource(execution *foundryExecution, runID string, source string) (string, error) {
 	if execution.External {
-		statePath := filepath.Join(execution.ScriptDir, "TxSimulationStateOverride_"+safeRunID(runID)+".sol")
+		statePath := filepath.Join(execution.TestDir, "TxSimulationStateOverride_"+safeRunID(runID)+".sol")
 		if err := os.WriteFile(statePath, []byte(source), 0o644); err != nil {
 			return "", err
 		}
@@ -569,6 +584,24 @@ func (s *Service) writeStateOverrideSource(execution *foundryExecution, runID st
 		return "", err
 	}
 	return statePath, nil
+}
+
+func (s *Service) writeSimulationInput(execution *foundryExecution, runID string, req model.SimulateRequest) (string, error) {
+	inputDir := filepath.Join(execution.Root, "out", "txsim-"+safeRunID(runID))
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		return "", err
+	}
+	inputPath := filepath.Join(inputDir, "input.json")
+	execution.tempFiles = append(execution.tempFiles, inputDir, inputPath)
+
+	encoded, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(inputPath, encoded, 0o600); err != nil {
+		return "", err
+	}
+	return inputPath, nil
 }
 
 func safeRunID(runID string) string {

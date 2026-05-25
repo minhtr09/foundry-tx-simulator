@@ -10,6 +10,7 @@ export type TraceNode = {
   selector?: string;
   arguments?: string;
   callType?: string;
+  callValue?: string;
   resultType?: string;
   value?: string;
   children?: TraceNode[];
