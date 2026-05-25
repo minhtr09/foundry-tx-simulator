@@ -73,7 +73,7 @@ func (p CoinGeckoProvider) fetchOne(ctx context.Context, platform string, token 
 }
 
 func coinGeckoPlatform(chain string) string {
-	switch strings.ToLower(strings.TrimSpace(chain)) {
+	switch normalizeChain(chain) {
 	case "mainnet", "eth", "ethereum":
 		return "ethereum"
 	case "arbitrum", "arbitrum-one", "arbitrum_one":
@@ -89,6 +89,6 @@ func coinGeckoPlatform(chain string) string {
 	case "gnosis", "xdai":
 		return "xdai"
 	default:
-		return strings.ToLower(strings.TrimSpace(chain))
+		return normalizeChain(chain)
 	}
 }

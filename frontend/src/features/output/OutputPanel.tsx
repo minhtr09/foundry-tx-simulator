@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction, type UIEvent } from "react";
 import type { ExpandMode, OutputView } from "../../app/form";
 import type { AddressLabels } from "../../lib/labels";
 import type { SimulateResponse } from "../../api/types";
@@ -34,7 +34,7 @@ export default function OutputPanel(props: OutputPanelProps) {
     onExpandModeChange,
     onOutputViewChange
   } = props;
-  const workspaceRef = useRef<HTMLElement | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const scrollPositionsRef = useRef<Partial<Record<OutputView, number>>>({});
   const pendingScrollTopRef = useRef<number | null>(null);
   const [traceSearchQuery, setTraceSearchQuery] = useState("");
@@ -43,13 +43,19 @@ export default function OutputPanel(props: OutputPanelProps) {
 
   const handleOutputViewChange = useCallback(
     (nextView: OutputView) => {
-      const workspace = workspaceRef.current;
-      const currentScrollTop = readScrollTop(workspace);
+      const currentScrollTop = readScrollTop(scrollAreaRef.current);
       scrollPositionsRef.current[outputView] = currentScrollTop;
-      pendingScrollTopRef.current = scrollPositionsRef.current[nextView] ?? currentScrollTop;
+      pendingScrollTopRef.current = scrollPositionsRef.current[nextView] ?? 0;
       onOutputViewChange(nextView);
     },
     [onOutputViewChange, outputView]
+  );
+
+  const handleScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      scrollPositionsRef.current[outputView] = event.currentTarget.scrollTop;
+    },
+    [outputView]
   );
 
   useLayoutEffect(() => {
@@ -58,7 +64,7 @@ export default function OutputPanel(props: OutputPanelProps) {
       return;
     }
     pendingScrollTopRef.current = null;
-    restoreScrollTop(workspaceRef.current, pendingScrollTop);
+    restoreScrollTop(scrollAreaRef.current, pendingScrollTop);
   }, [outputView]);
 
   useEffect(() => {
@@ -79,14 +85,7 @@ export default function OutputPanel(props: OutputPanelProps) {
   const traceMatchLabel = hasTraceQuery && hasTraceMatches ? `${traceMatchIndex + 1}/${traceMatchCount}` : "0/0";
 
   return (
-    <section
-      className="workspace"
-      aria-label="Simulation output"
-      ref={workspaceRef}
-      onScroll={(event) => {
-        scrollPositionsRef.current[outputView] = event.currentTarget.scrollTop;
-      }}
-    >
+    <section className="workspace" aria-label="Simulation output">
       <div className="workspace-toolbar">
         <div>
           <h2>Output</h2>
@@ -171,16 +170,18 @@ export default function OutputPanel(props: OutputPanelProps) {
               </div>
             </div>
           </div>
-          <TraceTree
-            addressLabels={addressLabels}
-            expandDepth={expandDepth}
-            explorerBaseUrl={explorerBaseUrl}
-            nodes={props.traceNodes}
-            expandMode={expandMode}
-            searchMatchIndex={traceMatchIndex}
-            searchQuery={traceSearchQuery}
-            onSearchMatchCountChange={setTraceMatchCount}
-          />
+          <div className="output-scroll" ref={scrollAreaRef} onScroll={handleScroll}>
+            <TraceTree
+              addressLabels={addressLabels}
+              expandDepth={expandDepth}
+              explorerBaseUrl={explorerBaseUrl}
+              nodes={props.traceNodes}
+              expandMode={expandMode}
+              searchMatchIndex={traceMatchIndex}
+              searchQuery={traceSearchQuery}
+              onSearchMatchCountChange={setTraceMatchCount}
+            />
+          </div>
         </section>
       )}
 
@@ -190,12 +191,14 @@ export default function OutputPanel(props: OutputPanelProps) {
             <h3>Fund Flow</h3>
             <span className="muted">{response?.erc20Transfers?.length ?? 0} transfers</span>
           </div>
-          <FundFlowGraph
-            addressLabels={addressLabels}
-            analysis={response?.balanceAnalysis}
-            explorerBaseUrl={explorerBaseUrl}
-            transfers={response?.erc20Transfers ?? []}
-          />
+          <div className="output-scroll" ref={scrollAreaRef} onScroll={handleScroll}>
+            <FundFlowGraph
+              addressLabels={addressLabels}
+              analysis={response?.balanceAnalysis}
+              explorerBaseUrl={explorerBaseUrl}
+              transfers={response?.erc20Transfers ?? []}
+            />
+          </div>
         </section>
       )}
 
@@ -205,7 +208,9 @@ export default function OutputPanel(props: OutputPanelProps) {
             <h3>Balance Analysis</h3>
             <span className="muted">{response?.balanceAnalysis?.changes?.length ?? 0} changes</span>
           </div>
-          <BalanceAnalysisView addressLabels={addressLabels} analysis={response?.balanceAnalysis} explorerBaseUrl={explorerBaseUrl} />
+          <div className="output-scroll" ref={scrollAreaRef} onScroll={handleScroll}>
+            <BalanceAnalysisView addressLabels={addressLabels} analysis={response?.balanceAnalysis} explorerBaseUrl={explorerBaseUrl} />
+          </div>
         </section>
       )}
 
@@ -214,7 +219,9 @@ export default function OutputPanel(props: OutputPanelProps) {
           <div className="section-bar">
             <h3>Raw Response</h3>
           </div>
-          <pre className="json-output">{JSON.stringify(response ?? {}, null, 2)}</pre>
+          <div className="output-scroll" ref={scrollAreaRef} onScroll={handleScroll}>
+            <pre className="json-output">{JSON.stringify(response ?? {}, null, 2)}</pre>
+          </div>
         </section>
       )}
     </section>
@@ -238,16 +245,9 @@ function clampDepth(value: string): number {
 }
 
 function readScrollTop(element: HTMLElement | null): number {
-  if (element && element.scrollHeight > element.clientHeight) {
-    return element.scrollTop;
-  }
-  return typeof window === "undefined" ? 0 : window.scrollY;
+  return element?.scrollTop ?? 0;
 }
 
 function restoreScrollTop(element: HTMLElement | null, scrollTop: number) {
-  if (element && element.scrollHeight > element.clientHeight) {
-    element.scrollTo({ top: scrollTop });
-    return;
-  }
-  window.scrollTo({ top: scrollTop });
+  element?.scrollTo({ top: scrollTop });
 }
