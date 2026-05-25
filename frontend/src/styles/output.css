@@ -1,10 +1,14 @@
 .workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   padding: 20px;
-  overflow: auto;
 }
 
 .workspace-toolbar {
+  flex: 0 0 auto;
   margin-bottom: 16px;
 }
 
@@ -15,15 +19,27 @@
 }
 
 .output-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
-  min-height: calc(100vh - 88px);
 }
 
 .section-bar {
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
   padding: 12px 14px;
+}
+
+.output-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .icon-actions {
