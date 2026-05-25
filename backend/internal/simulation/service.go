@@ -2,12 +2,14 @@ package simulation
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"foundry-tx-simulator/backend/internal/config"
@@ -47,6 +49,9 @@ type Service struct {
 	forge   forgeRunner
 	prices  priceProvider
 	workers chan *simulationWorker
+
+	scriptCopiesMu sync.Mutex
+	scriptCopies   map[string]int
 }
 
 type foundryExecution struct {
@@ -56,6 +61,7 @@ type foundryExecution struct {
 	ScriptPath   string
 	External     bool
 	tempFiles    []string
+	cleanupFuncs []func()
 }
 
 type simulationWorker struct {
@@ -70,8 +76,9 @@ func NewService(cfg config.Config) *Service {
 			Bin:      cfg.ForgeBin,
 			RepoRoot: cfg.RepoRoot,
 		},
-		prices:  prices.DefaultProvider(cfg.RPCURLs),
-		workers: newSimulationWorkers(cfg),
+		prices:       prices.DefaultProvider(cfg.RPCURLs),
+		workers:      newSimulationWorkers(cfg),
+		scriptCopies: make(map[string]int),
 	}
 }
 
@@ -127,6 +134,9 @@ func (s *Service) Close() {
 func (e *foundryExecution) cleanup() {
 	for i := len(e.tempFiles) - 1; i >= 0; i-- {
 		_ = os.Remove(e.tempFiles[i])
+	}
+	for i := len(e.cleanupFuncs) - 1; i >= 0; i-- {
+		e.cleanupFuncs[i]()
 	}
 }
 
@@ -480,16 +490,54 @@ func (s *Service) prepareFoundryExecution(req *model.SimulateRequest, runID stri
 		return foundryExecution{}, err
 	}
 
-	scriptName := "TxSimulation_" + safeRunID(runID) + ".s.sol"
+	scriptName := deterministicScriptName(source)
 	scriptPath := filepath.Join(execution.ScriptDir, scriptName)
-	if err := os.WriteFile(scriptPath, source, 0o644); err != nil {
+	releaseScriptCopy, err := s.retainScriptCopy(scriptPath, source)
+	if err != nil {
 		return foundryExecution{}, err
 	}
 
 	execution.ScriptPath = scriptPath
 	execution.ScriptTarget = filepath.ToSlash(scriptPath) + ":" + scriptContractName
-	execution.tempFiles = append(execution.tempFiles, scriptPath)
+	execution.cleanupFuncs = append(execution.cleanupFuncs, releaseScriptCopy)
 	return execution, nil
+}
+
+func deterministicScriptName(source []byte) string {
+	hash := sha256.Sum256(source)
+	return fmt.Sprintf("TxSimulation_%x.s.sol", hash)
+}
+
+func (s *Service) retainScriptCopy(scriptPath string, source []byte) (func(), error) {
+	s.scriptCopiesMu.Lock()
+	defer s.scriptCopiesMu.Unlock()
+
+	if s.scriptCopies == nil {
+		s.scriptCopies = make(map[string]int)
+	}
+	if s.scriptCopies[scriptPath] == 0 {
+		if err := os.WriteFile(scriptPath, source, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	s.scriptCopies[scriptPath]++
+
+	return func() {
+		s.releaseScriptCopy(scriptPath)
+	}, nil
+}
+
+func (s *Service) releaseScriptCopy(scriptPath string) {
+	s.scriptCopiesMu.Lock()
+	defer s.scriptCopiesMu.Unlock()
+
+	count := s.scriptCopies[scriptPath]
+	if count <= 1 {
+		delete(s.scriptCopies, scriptPath)
+		_ = os.Remove(scriptPath)
+	} else {
+		s.scriptCopies[scriptPath] = count - 1
+	}
 }
 
 func (s *Service) buildProjectSrc(ctx context.Context, execution foundryExecution, compiler *model.CompilerConfig) forge.Result {

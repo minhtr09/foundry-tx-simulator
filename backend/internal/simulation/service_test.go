@@ -3,6 +3,7 @@ package simulation
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -330,10 +331,10 @@ func TestSimulateExternalProjectBuildsSrcCompilesOverrideAndRunsCopiedScript(t *
 	}
 
 	scriptArgs := fake.calls[2]
+	scriptHash := sha256.Sum256(scriptSource)
+	wantScriptTarget := filepath.ToSlash(filepath.Join(projectRoot, "script", fmt.Sprintf("TxSimulation_%x.s.sol", scriptHash))) + ":SimulateTxScript"
 	if !hasArgSequence(scriptArgs, "script") ||
-		!filepath.IsAbs(strings.TrimSuffix(scriptArgs[1], ":SimulateTxScript")) ||
-		!strings.HasPrefix(scriptArgs[1], filepath.ToSlash(filepath.Join(projectRoot, "script", "TxSimulation_"))) ||
-		!strings.HasSuffix(scriptArgs[1], ".s.sol:SimulateTxScript") ||
+		scriptArgs[1] != wantScriptTarget ||
 		!hasArgSequence(scriptArgs, "--root", projectRoot) ||
 		!hasArgSequence(scriptArgs, "--rpc-url", "http://127.0.0.1:19001") ||
 		!hasArgSequence(scriptArgs, "--etherscan-api-key", "etherscan-test-key") ||
@@ -352,6 +353,57 @@ func TestSimulateExternalProjectBuildsSrcCompilesOverrideAndRunsCopiedScript(t *
 	}
 	if len(entries) != 0 {
 		t.Fatalf("temporary script files were not cleaned up: %#v", entries)
+	}
+}
+
+func TestPrepareFoundryExecutionUsesContentBasedScriptCopyWithReferenceCount(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "contracts", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scriptSource := []byte("// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.0;\ncontract SimulateTxScript {}\n")
+	if err := os.WriteFile(filepath.Join(repoRoot, "contracts", "src", "SimulateTx.s.sol"), scriptSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectRoot := t.TempDir()
+	service := NewService(config.Config{
+		RepoRoot:       repoRoot,
+		TimeoutSeconds: 30,
+		MaxConcurrent:  1,
+		RPCURLs: map[string]string{
+			"mainnet": "http://127.0.0.1:8545",
+		},
+	})
+	t.Cleanup(service.Close)
+
+	req := &model.SimulateRequest{ProjectPath: projectRoot}
+	first, err := service.prepareFoundryExecution(req, "first-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.prepareFoundryExecution(req, "second-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scriptHash := sha256.Sum256(scriptSource)
+	wantScriptPath := filepath.Join(projectRoot, "script", fmt.Sprintf("TxSimulation_%x.s.sol", scriptHash))
+	if first.ScriptPath != wantScriptPath || second.ScriptPath != wantScriptPath {
+		t.Fatalf("script paths = %q and %q, want %q", first.ScriptPath, second.ScriptPath, wantScriptPath)
+	}
+	if _, err := os.Stat(wantScriptPath); err != nil {
+		t.Fatalf("script copy missing before cleanup: %v", err)
+	}
+
+	first.cleanup()
+	if _, err := os.Stat(wantScriptPath); err != nil {
+		t.Fatalf("script copy removed while still referenced: %v", err)
+	}
+
+	second.cleanup()
+	if _, err := os.Stat(wantScriptPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("script copy should be removed after last cleanup, stat err = %v", err)
 	}
 }
 
