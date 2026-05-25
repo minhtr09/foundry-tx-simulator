@@ -9,24 +9,26 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/subosito/gotenv"
+
+	"foundry-tx-simulator/backend/internal/pathutil"
 )
 
 type Config struct {
-	ListenAddr       string            `mapstructure:"listen_addr" yaml:"listen_addr"`
-	FrontendPort     int               `mapstructure:"frontend_port" yaml:"frontend_port"`
-	RepoRoot         string            `mapstructure:"repo_root" yaml:"repo_root"`
-	ProjectRoots     []string          `mapstructure:"project_roots" yaml:"project_roots"`
-	WorkDir          string            `mapstructure:"work_dir" yaml:"work_dir"`
-	ProjectCachePath string            `mapstructure:"project_cache_path" yaml:"project_cache_path"`
-	TimeoutSeconds   int               `mapstructure:"timeout_seconds" yaml:"timeout_seconds"`
-	MaxConcurrent    int               `mapstructure:"max_concurrent_runs" yaml:"max_concurrent_runs"`
-	ForgeBin         string            `mapstructure:"forge_bin" yaml:"forge_bin"`
-	AnvilBin         string            `mapstructure:"anvil_bin" yaml:"anvil_bin"`
-	AnvilHost        string            `mapstructure:"anvil_host" yaml:"anvil_host"`
-	AnvilPortStart   int               `mapstructure:"anvil_port_start" yaml:"anvil_port_start"`
-	EtherscanAPIKey  string            `mapstructure:"etherscan_api_key" yaml:"etherscan_api_key"`
-	RPCURLs          map[string]string `mapstructure:"rpc_urls" yaml:"rpc_urls"`
-	ExplorerURLs     map[string]string `mapstructure:"explorer_urls" yaml:"explorer_urls"`
+	ListenAddr       string            `mapstructure:"listen_addr"`
+	FrontendPort     int               `mapstructure:"frontend_port"`
+	RepoRoot         string            `mapstructure:"repo_root"`
+	ProjectRoots     []string          `mapstructure:"project_roots"`
+	WorkDir          string            `mapstructure:"work_dir"`
+	ProjectCachePath string            `mapstructure:"project_cache_path"`
+	TimeoutSeconds   int               `mapstructure:"timeout_seconds"`
+	MaxConcurrent    int               `mapstructure:"max_concurrent_runs"`
+	ForgeBin         string            `mapstructure:"forge_bin"`
+	AnvilBin         string            `mapstructure:"anvil_bin"`
+	AnvilHost        string            `mapstructure:"anvil_host"`
+	AnvilPortStart   int               `mapstructure:"anvil_port_start"`
+	EtherscanAPIKey  string            `mapstructure:"etherscan_api_key"`
+	RPCURLs          map[string]string `mapstructure:"rpc_urls"`
+	ExplorerURLs     map[string]string `mapstructure:"explorer_urls"`
 }
 
 const (
@@ -132,17 +134,13 @@ func LoadFile(path string) (Config, string, error) {
 }
 
 func resolveConfigPath() (string, error) {
-	env := viper.New()
-	if err := env.BindEnv("config", "TXSIM_CONFIG"); err != nil {
-		return "", err
-	}
-	return ResolveConfigPath("", env.GetString("config"))
+	return ResolveConfigPath("", os.Getenv("TXSIM_CONFIG"))
 }
 
 func ResolveConfigPath(baseDir string, configured string) (string, error) {
 	configured = strings.TrimSpace(configured)
 	if configured != "" {
-		candidate, err := expandHomePath(configured)
+		candidate, err := pathutil.ExpandHome(configured)
 		if err != nil {
 			return "", err
 		}
@@ -225,29 +223,7 @@ func normalizeConfigPath(baseDir string, value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	expanded, err := expandHomePath(value)
-	if err != nil {
-		return "", err
-	}
-	value = expanded
-	if !filepath.IsAbs(value) {
-		value = filepath.Join(baseDir, value)
-	}
-	return filepath.Abs(value)
-}
-
-func expandHomePath(value string) (string, error) {
-	if value != "~" && !strings.HasPrefix(value, "~/") {
-		return value, nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	if value == "~" {
-		return homeDir, nil
-	}
-	return filepath.Join(homeDir, strings.TrimPrefix(value, "~/")), nil
+	return pathutil.AbsFrom(baseDir, value)
 }
 
 func loadDotEnv(paths ...string) error {

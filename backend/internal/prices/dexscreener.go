@@ -93,7 +93,7 @@ type dexScreenerCandidate struct {
 }
 
 func dexScreenerChain(chain string) string {
-	switch strings.ToLower(strings.TrimSpace(chain)) {
+	switch normalizeChain(chain) {
 	case "mainnet", "eth", "ethereum":
 		return "ethereum"
 	case "arbitrum-one", "arbitrum_one":
@@ -107,6 +107,6 @@ func dexScreenerChain(chain string) string {
 	case "avalanche", "avax":
 		return "avalanche"
 	default:
-		return strings.ToLower(strings.TrimSpace(chain))
+		return normalizeChain(chain)
 	}
 }

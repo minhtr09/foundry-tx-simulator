@@ -131,6 +131,10 @@ func normalizeAddress(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
+func normalizeChain(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
 func defaultHTTPClient(client *http.Client) *http.Client {
 	if client != nil {
 		return client

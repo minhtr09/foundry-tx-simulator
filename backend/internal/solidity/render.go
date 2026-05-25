@@ -18,15 +18,17 @@ var (
 )
 
 func ForgeRunArgs(req model.SimulateRequest, stateBytecode string) []string {
+	stateBytecode, _ = NormalizeBytes("stateBytecode", stateBytecode)
+	data, _ := NormalizeBytes("data", req.Data)
 	return []string{
 		formatLabelOverrides(req.LabelOverrides),
 		formatERC20BalanceOverrides(req.ERC20BalanceOverrides),
 		formatERC20ApprovalOverrides(req.ERC20ApprovalOverrides),
 		formatERC721ApprovalOverrides(req.ERC721ApprovalOverrides),
-		NormalizeHexForCLI(stateBytecode),
+		stateBytecode,
 		req.Sender,
 		req.Target,
-		NormalizeHexForCLI(req.Data),
+		data,
 	}
 }
 
@@ -150,20 +152,6 @@ func NormalizeBytes(field string, value string) (string, error) {
 		return "", fmt.Errorf("%s must be even-length hex bytes", field)
 	}
 	return "0x" + strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(value, "0x"), "0X")), nil
-}
-
-func SolAddress(value string) string {
-	return "address(" + value + ")"
-}
-
-func SolHexBytes(value string) string {
-	normalized, _ := NormalizeBytes("bytes", value)
-	return "hex\"" + strings.TrimPrefix(normalized, "0x") + "\""
-}
-
-func NormalizeHexForCLI(value string) string {
-	normalized, _ := NormalizeBytes("bytes", value)
-	return normalized
 }
 
 func formatStringArg(value string) string {

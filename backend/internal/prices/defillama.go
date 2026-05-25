@@ -92,13 +92,13 @@ func defillamaCoinIDs(chain string, tokens []string) []string {
 }
 
 func defillamaChain(chain string) string {
-	switch strings.ToLower(strings.TrimSpace(chain)) {
+	switch normalizeChain(chain) {
 	case "mainnet", "eth", "ethereum":
 		return "ethereum"
 	case "arbitrum", "arbitrum-one", "arbitrum_one":
 		return "arbitrum"
 	default:
-		return strings.ToLower(strings.TrimSpace(chain))
+		return normalizeChain(chain)
 	}
 }
 
@@ -107,18 +107,7 @@ func trustWalletLogoURL(chain string, token string) string {
 	if checksum == "" {
 		return ""
 	}
-	return fmt.Sprintf("https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/%s/assets/%s/logo.png", trustWalletChain(chain), checksum)
-}
-
-func trustWalletChain(chain string) string {
-	switch strings.ToLower(strings.TrimSpace(chain)) {
-	case "mainnet", "eth", "ethereum":
-		return "ethereum"
-	case "arbitrum", "arbitrum-one", "arbitrum_one":
-		return "arbitrum"
-	default:
-		return strings.ToLower(strings.TrimSpace(chain))
-	}
+	return fmt.Sprintf("https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/%s/assets/%s/logo.png", defillamaChain(chain), checksum)
 }
 
 func checksumAddress(value string) string {

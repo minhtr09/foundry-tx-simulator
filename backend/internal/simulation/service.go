@@ -14,6 +14,7 @@ import (
 	"foundry-tx-simulator/backend/internal/forge"
 	"foundry-tx-simulator/backend/internal/fundflow"
 	"foundry-tx-simulator/backend/internal/model"
+	"foundry-tx-simulator/backend/internal/pathutil"
 	"foundry-tx-simulator/backend/internal/prices"
 	"foundry-tx-simulator/backend/internal/runid"
 	"foundry-tx-simulator/backend/internal/solidity"
@@ -127,14 +128,6 @@ func (e *foundryExecution) cleanup() {
 	for i := len(e.tempFiles) - 1; i >= 0; i-- {
 		_ = os.Remove(e.tempFiles[i])
 	}
-}
-
-func (s *Service) localFoundryRoot() string {
-	return filepath.Join(s.cfg.RepoRoot, localFoundryDir)
-}
-
-func (s *Service) localScriptPath() string {
-	return filepath.Join(s.localFoundryRoot(), filepath.FromSlash(localScriptRelPath))
 }
 
 func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (model.SimulateResponse, int) {
@@ -393,18 +386,13 @@ func (s *Service) normalizeProjectPath(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	expandedValue, err := expandHomePath(value)
-	if err != nil {
-		return "", err
-	}
-	value = expandedValue
 	if resolved, ok := existingDirectoryPath(s.cfg.RepoRoot, value); ok {
 		return resolved, nil
 	}
 	if resolved, ok := s.resolveProjectRootPath(value); ok {
 		return resolved, nil
 	}
-	absPath, err := absoluteProjectPath(s.cfg.RepoRoot, value)
+	absPath, err := pathutil.AbsFrom(s.cfg.RepoRoot, value)
 	if err != nil {
 		return "", err
 	}
@@ -424,7 +412,7 @@ func (s *Service) resolveProjectRootPath(value string) (string, bool) {
 }
 
 func existingDirectoryPath(baseDir string, value string) (string, bool) {
-	absPath, err := absoluteProjectPath(baseDir, value)
+	absPath, err := pathutil.AbsFrom(baseDir, value)
 	if err != nil {
 		return "", false
 	}
@@ -433,33 +421,6 @@ func existingDirectoryPath(baseDir string, value string) (string, bool) {
 		return "", false
 	}
 	return absPath, true
-}
-
-func absoluteProjectPath(baseDir string, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	expanded, err := expandHomePath(value)
-	if err != nil {
-		return "", err
-	}
-	value = expanded
-	if !filepath.IsAbs(value) {
-		value = filepath.Join(baseDir, value)
-	}
-	return filepath.Abs(value)
-}
-
-func expandHomePath(value string) (string, error) {
-	if value != "~" && !strings.HasPrefix(value, "~/") {
-		return value, nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	if value == "~" {
-		return homeDir, nil
-	}
-	return filepath.Join(homeDir, strings.TrimPrefix(value, "~/")), nil
 }
 
 func pathSuffixes(value string) []string {
@@ -495,11 +456,13 @@ func validateCompilerConfig(config *model.CompilerConfig) error {
 }
 
 func (s *Service) prepareFoundryExecution(req *model.SimulateRequest, runID string) (foundryExecution, error) {
+	localRoot := filepath.Join(s.cfg.RepoRoot, localFoundryDir)
+	localScriptPath := filepath.Join(localRoot, filepath.FromSlash(localScriptRelPath))
 	if req.ProjectPath == "" {
 		return foundryExecution{
-			Root:         s.localFoundryRoot(),
+			Root:         localRoot,
 			ScriptTarget: localScriptTarget,
-			ScriptPath:   s.localScriptPath(),
+			ScriptPath:   localScriptPath,
 		}, nil
 	}
 
@@ -512,8 +475,7 @@ func (s *Service) prepareFoundryExecution(req *model.SimulateRequest, runID stri
 		return foundryExecution{}, err
 	}
 
-	sourcePath := s.localScriptPath()
-	source, err := os.ReadFile(sourcePath)
+	source, err := os.ReadFile(localScriptPath)
 	if err != nil {
 		return foundryExecution{}, err
 	}

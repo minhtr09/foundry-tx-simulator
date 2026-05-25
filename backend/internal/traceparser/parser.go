@@ -154,17 +154,13 @@ func collectERC20Transfers(item forgeArenaNode, arenaByID map[int]forgeArenaNode
 	if isRevertedTrace(item.Trace) {
 		return nil
 	}
-	if !isTraceKind(item.Trace, "DELEGATECALL") {
+	if !strings.EqualFold(strings.TrimSpace(item.Trace.Kind), "DELEGATECALL") {
 		tokenContext = item.Trace.Address
 	}
 
 	transfers := make([]model.ERC20Transfer, 0)
 	for _, rawLog := range item.Logs {
-		log, ok := parseForgeLog(rawLog)
-		if !ok {
-			continue
-		}
-		transfer, ok := erc20TransferFromLog(log, tokenContext)
+		transfer, ok := erc20TransferFromLog(rawLog, tokenContext)
 		if ok {
 			transfers = append(transfers, transfer)
 		}
@@ -187,14 +183,10 @@ func isRevertedTrace(trace forgeCallTrace) bool {
 	return status == "revert" || status == "reverted"
 }
 
-func isTraceKind(trace forgeCallTrace, kind string) bool {
-	return strings.EqualFold(strings.TrimSpace(trace.Kind), kind)
-}
-
-func parseForgeLog(raw json.RawMessage) (forgeLog, bool) {
+func erc20TransferFromLog(raw json.RawMessage, tokenAddress string) (model.ERC20Transfer, bool) {
 	var log forgeLog
 	if err := json.Unmarshal(raw, &log); err != nil {
-		return forgeLog{}, false
+		return model.ERC20Transfer{}, false
 	}
 	if log.RawLog != nil {
 		if log.Address == "" {
@@ -213,14 +205,10 @@ func parseForgeLog(raw json.RawMessage) (forgeLog, bool) {
 	if log.Address == "" {
 		log.Address = log.Emitter
 	}
-	return log, len(log.Topics) > 0
-}
-
-func erc20TransferFromLog(log forgeLog, tokenAddress string) (model.ERC20Transfer, bool) {
 	if len(log.Topics) != 3 || normalizeHex(log.Topics[0]) != erc20TransferTopic {
 		return model.ERC20Transfer{}, false
 	}
-	if normalizedHexBytes(log.Data) != 32 {
+	if len(strings.TrimPrefix(normalizeHex(log.Data), "0x")) != 64 {
 		return model.ERC20Transfer{}, false
 	}
 
@@ -273,17 +261,6 @@ func hexUintToDecimal(value string) string {
 		return ""
 	}
 	return n.String()
-}
-
-func normalizedHexBytes(value string) int {
-	value = strings.TrimSpace(value)
-	if strings.HasPrefix(value, "0x") || strings.HasPrefix(value, "0X") {
-		value = value[2:]
-	}
-	if value == "" {
-		return 0
-	}
-	return (len(value) + 1) / 2
 }
 
 func isAddress(value string) bool {
