@@ -81,11 +81,18 @@ test("exports and imports simulation input and output", async ({ page }, testInf
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:5173" });
   await routeBaseEndpoints(page);
   await page.route(`${apiURL}/simulate`, async (route) => {
-    const request = route.request().postDataJSON() as { blockNumber?: string; sender?: string; target?: string; data?: string };
+    const request = route.request().postDataJSON() as {
+      blockNumber?: string;
+      sender?: string;
+      target?: string;
+      data?: string;
+      decodeInternal?: boolean;
+    };
     expect(request.blockNumber).toBe("23000000");
     expect(request.sender).toBe(spender);
     expect(request.target).toBe(token);
     expect(request.data).toBe("0x23b872dd");
+    expect(request.decodeInternal).toBe(false);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -309,6 +316,7 @@ test("uses configured explorer links and renders only the last main call subtree
   await expect(page.locator(".trace-tree")).toContainText("transferFrom");
   await expect(page.locator(".trace-tree")).toContainText("UnmappedToken");
   await expect(page.locator(".trace-tree")).toContainText("Transfer(from:");
+  await expect(page.locator(".trace-tree")).toContainText("value 1000000000000000000 wei");
   await expect(page.locator(".trace-tree")).not.toContainText("callTarget:");
   await expect(page.locator(".trace-tree")).not.toContainText("WETH: [");
   await expect(page.locator(".trace-tree")).not.toContainText("WETH9");
@@ -319,7 +327,7 @@ test("uses configured explorer links and renders only the last main call subtree
   await expect(page.locator(".trace-tree")).not.toContainText("TXSIM_LOG");
   await expect(page.locator(".trace-tree")).not.toContainText("console2");
   await expect(page.locator(".trace-tree")).not.toContainText("getRecordedLogs");
-  await expect(page.locator(".trace-tree")).not.toContainText("SimulateTxScript");
+  await expect(page.locator(".trace-tree")).not.toContainText("SimulateTxRunnerTest");
   await expect(page.locator(".trace-tree")).not.toContainText("[Return]");
   await expect(page.locator(".trace-tree")).not.toContainText("[Stop]");
   await expect(page.locator(".trace-tree")).not.toContainText("delegatecall | 400 gas");
@@ -465,6 +473,9 @@ test("uses configured explorer links and renders only the last main call subtree
 
   await page.getByRole("button", { name: "JSON" }).click();
   await expect(page.locator(".output-scroll")).toHaveCSS("overflow-y", "auto");
+  await expect(page.locator(".json-output")).toContainText('"trace": {');
+  await expect(page.locator(".json-output")).toContainText('"traces": [');
+  await expect(page.locator(".json-output")).not.toContainText('"trace": "{');
   await scrollOutputContent(page, 360);
   expect(await outputScrollTop(page)).toBeGreaterThan(250);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);

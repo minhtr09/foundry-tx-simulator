@@ -26,6 +26,7 @@ type ForgeCallTrace = {
   output: string;
   status: string;
   success: boolean;
+  value: string;
 };
 
 type ForgeDecoded = {
@@ -62,8 +63,10 @@ export function traceDataFromResponse(response: SimulateResponse | null | undefi
 export function parseForgeTrace(trace: string): TraceData {
   try {
     const payload = JSON.parse(trace);
-    const labels = normalizeLabels(readRecord(payload)?.labeled_addresses);
-    const traces = readArray(readRecord(payload)?.traces).flatMap(parseTraceEntry);
+    const record = readRecord(payload);
+    const labels = new Map<string, string>();
+    mergeLabels(labels, normalizeLabels(record?.labeled_addresses));
+    const traces = readArray(record?.traces).flatMap(parseTraceEntry);
     for (const entry of traces) {
       collectArenaLabels(entry.arena, labels);
     }
@@ -121,7 +124,8 @@ function parseArenaNode(value: unknown, index: number): ForgeArenaNode {
       kind: readString(trace?.kind),
       output: readString(trace?.output),
       status: readString(trace?.status),
-      success: readBool(trace?.success)
+      success: readBool(trace?.success),
+      value: readCallValue(trace?.value)
     }
   };
 }
@@ -242,6 +246,7 @@ function arenaNodeToTraceNode(item: ForgeArenaNode, labels: Map<string, string>)
     selector: isFallback ? undefined : traceSelector(trace),
     arguments: args || undefined,
     callType: callType || undefined,
+    callValue: traceCallValue(trace) || undefined,
     resultType: trace.status || undefined,
     value: traceValue(trace) || undefined
   };
@@ -351,11 +356,18 @@ function traceValue(trace: ForgeCallTrace): string {
   return values.join(" ");
 }
 
+function traceCallValue(trace: ForgeCallTrace): string {
+  const value = uintString(trace.value);
+  return value === "0" ? "" : `${value} wei`;
+}
+
 function traceRaw(target: string, targetLabel: string | undefined, fn: string, args: string, callType: string, trace: ForgeCallTrace): string {
   const gas = trace.gasUsed && trace.gasUsed > 0 ? `[${trace.gasUsed}] ` : "";
+  const value = traceCallValue(trace);
+  const callValue = value ? ` {value: ${value}}` : "";
   const kind = callType ? ` [${callType}]` : "";
   const status = trace.status ? ` => ${trace.status}` : "";
-  return `${gas}${targetLabel || target || "unknown"}::${fn || "call"}(${args})${kind}${status}`;
+  return `${gas}${targetLabel || target || "unknown"}::${fn || "call"}(${args})${callValue}${kind}${status}`;
 }
 
 function formatJSONValue(value: unknown): string {
@@ -410,6 +422,14 @@ function normalizeLabels(value: unknown): Map<string, string> {
   return labels;
 }
 
+function mergeLabels(target: Map<string, string>, source: Map<string, string>) {
+  for (const [address, label] of source) {
+    if (!target.has(address)) {
+      target.set(address, label);
+    }
+  }
+}
+
 function collectArenaLabels(arena: ForgeArenaNode[], labels: Map<string, string>) {
   for (const item of arena) {
     const address = item.trace.address.trim();
@@ -446,6 +466,16 @@ function readString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function readCallValue(value: unknown): string {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return String(value);
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return "0";
+}
+
 function readBool(value: unknown): boolean {
   return typeof value === "boolean" ? value : false;
 }
@@ -479,6 +509,24 @@ function readUint(value: unknown): number | undefined {
 
 function isAddress(value: string): boolean {
   return /^0x[0-9a-fA-F]{40}$/.test(value.trim());
+}
+
+function uintString(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "0";
+  }
+  try {
+    if (/^0x[0-9a-fA-F]+$/.test(trimmed)) {
+      return BigInt(trimmed).toString(10);
+    }
+    if (/^[0-9]+$/.test(trimmed)) {
+      return BigInt(trimmed).toString(10);
+    }
+  } catch {
+    return "0";
+  }
+  return "0";
 }
 
 function escapeRegExp(value: string): string {

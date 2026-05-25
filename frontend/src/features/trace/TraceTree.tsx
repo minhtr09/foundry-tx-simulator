@@ -115,12 +115,14 @@ function TraceNodeView(props: {
   const main = traceLabel(props.searchNode.node, props.addressLabels, props.explorerBaseUrl, props.highlightTerms);
   const kind = traceKindLabel(props.searchNode.node);
   const meta = props.searchNode.node.gas ? `${props.searchNode.node.gas} gas` : "";
+  const callValue = props.searchNode.node.callValue ? `value ${props.searchNode.node.callValue}` : "";
   const rowClassName = traceRowClassName(props.searchNode.selfMatches, isActiveMatch);
   const content = (
     <>
       <span className="trace-kind">{highlightSearchText(kind, props.highlightTerms)}</span>
       <span className="trace-main">{main}</span>
-      <span className={meta ? "trace-meta trace-gas" : "trace-meta"}>{highlightSearchText(meta, props.highlightTerms)}</span>
+      {meta ? <span className="trace-meta trace-gas">{highlightSearchText(meta, props.highlightTerms)}</span> : null}
+      {callValue ? <span className="trace-meta trace-value">{highlightSearchText(callValue, props.highlightTerms)}</span> : null}
     </>
   );
 
@@ -315,6 +317,7 @@ function traceSearchText(node: TraceNode, addressLabels: AddressLabels): string 
     node.functionSignature,
     node.selector,
     node.arguments,
+    node.callValue,
     node.value,
     node.raw,
     node.resultType,

@@ -24,7 +24,7 @@ project_roots:
 work_dir: "` + filepath.ToSlash(workDir) + `"
 timeout_seconds: 1
 max_concurrent_runs: 1
-forge_bin: "forge"
+forge_bin: "forge-kyber"
 rpc_urls:
   mainnet: "${MAINNET_RPC_URL}"
 explorer_urls:
@@ -352,10 +352,10 @@ func TestLoadUsesViperDefaults(t *testing.T) {
 	if cfg.MaxConcurrent != 1 {
 		t.Fatalf("max concurrent = %d, want viper default", cfg.MaxConcurrent)
 	}
-	if cfg.ForgeBin != "forge" {
+	if cfg.ForgeBin != "forge-kyber" {
 		t.Fatalf("forge bin = %q, want viper default", cfg.ForgeBin)
 	}
-	if cfg.AnvilBin != "anvil" {
+	if cfg.AnvilBin != "anvil-kyber" {
 		t.Fatalf("anvil bin = %q, want viper default", cfg.AnvilBin)
 	}
 	if cfg.AnvilHost != "127.0.0.1" {

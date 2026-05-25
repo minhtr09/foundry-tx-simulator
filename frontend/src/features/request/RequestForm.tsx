@@ -390,6 +390,7 @@ function CompilerTab(props: { form: FormState; onUpdate: UpdateForm }) {
         <Checkbox label="optimize" checked={form.optimize} onChange={(value) => onUpdate("optimize", value)} />
         <Checkbox label="offline" checked={form.offline} onChange={(value) => onUpdate("offline", value)} />
         <Checkbox label="no metadata" checked={form.noMetadata} onChange={(value) => onUpdate("noMetadata", value)} />
+        <Checkbox label="decode internal" checked={form.decodeInternal} onChange={(value) => onUpdate("decodeInternal", value)} />
       </div>
       <div className="two-col">
         <label>

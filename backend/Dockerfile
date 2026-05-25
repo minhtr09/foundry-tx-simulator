@@ -12,8 +12,10 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends bash ca-certificates curl git gzip tar \
   && rm -rf /var/lib/apt/lists/*
 
-RUN curl -L https://foundry.paradigm.xyz | bash \
-  && /root/.foundry/bin/foundryup
+ARG FOUNDRY_KYBER_TAG=nightly-04bdb43d9435cecec89abc17b3dcb618086c0d99
+COPY scripts/install-foundry-kyber.sh /tmp/install-foundry-kyber.sh
+RUN /tmp/install-foundry-kyber.sh \
+  && rm /tmp/install-foundry-kyber.sh
 
 ENV PATH="/root/.foundry/bin:${PATH}"
 ENV TXSIM_CONFIG="/app/config.docker.yaml"

@@ -1,8 +1,18 @@
 # Foundry Tx Simulator Backend
 
-Local Go server that accepts simulation parameters, maps `chain` to an RPC URL from config, compiles optional state override Solidity, runs the existing Foundry script with CLI arguments, and returns the raw Forge JSON trace with backend-derived fund-flow and balance analysis.
+Local Go server that accepts simulation parameters, maps `chain` to an RPC URL from config, compiles optional state override Solidity, runs the simulation test harness, and returns the execution trace with backend-derived fund-flow and balance analysis.
 
 ## Run
+
+Install the pinned Kyber Foundry fork from the repo root before running local simulations:
+
+```sh
+scripts/install-foundry-kyber.sh
+```
+
+The backend expects `forge_bin: "forge-kyber"` and `anvil_bin: "anvil-kyber"` so
+the simulation runner can use the forked `forge-kyber test --json` output and
+optionally request decoded internal calls.
 
 ```sh
 cd backend
@@ -16,7 +26,7 @@ cd backend
 TXSIM_DEBUG_HTTP=1 go run ./cmd/server
 ```
 
-The backend also logs simulation stages with `slog`: worker acquisition, Foundry project setup, external `forge build src`, state override compilation, Anvil start/reset, Forge script exit code, parsed trace size, transfer count, price-fetch count, and balance-analysis count. These logs avoid printing upstream RPC URLs, Etherscan API keys, calldata, or state override bytecode.
+The backend also logs simulation stages with `slog`: worker acquisition, Foundry project setup, external `forge-kyber build src`, state override compilation, Anvil start/reset, Forge test exit code, parsed trace size, transfer count, price-fetch count, and balance-analysis count. These logs avoid printing upstream RPC URLs, Etherscan API keys, calldata, or state override bytecode.
 
 Docker is available as an optional deployment path from the repo root:
 
@@ -69,8 +79,8 @@ work_dir: "backend/.runs"
 project_cache_path: "backend/.runs/projects.json"
 timeout_seconds: 300
 max_concurrent_runs: 1
-forge_bin: "forge"
-anvil_bin: "anvil"
+forge_bin: "forge-kyber"
+anvil_bin: "anvil-kyber"
 anvil_host: "127.0.0.1"
 anvil_port_start: 18545
 etherscan_api_key: "${ETHERSCAN_API_KEY}"
@@ -80,7 +90,7 @@ explorer_urls:
   mainnet: "https://etherscan.io"
 ```
 
-Chain RPC endpoints are read from the YAML `rpc_urls` map. `explorer_urls` maps the same chain names to block explorer base URLs for frontend address links. `etherscan_api_key` is backend-side only and maps to `forge script --etherscan-api-key`; set it directly in YAML or use `${ETHERSCAN_API_KEY}`. `frontend_port` controls the Vite server when using `./dev.sh`. Set `COINGECKO_API_KEY` in `.env` if you want CoinGecko requests to include a demo API key.
+Chain RPC endpoints are read from the YAML `rpc_urls` map. `explorer_urls` maps the same chain names to block explorer base URLs for frontend address links. `etherscan_api_key` is backend-side only and maps to `forge-kyber test --etherscan-api-key`; set it directly in YAML or use `${ETHERSCAN_API_KEY}`. `frontend_port` controls the Vite server when using `./dev.sh`. Set `COINGECKO_API_KEY` in `.env` if you want CoinGecko requests to include a demo API key.
 
 Simulation records are stored in a SQLite database at `<work_dir>/records.sqlite`. `project_cache_path` stores recently used Foundry project paths. Local runs default to `backend/.runs/projects.json`; Docker uses `/data/runs` for records and project cache data, and persists that directory with the `backend-runs` volume.
 
@@ -148,6 +158,7 @@ Inside Docker, native project browsing is unavailable because the backend runs i
     "optimizerRuns": 200,
     "revertStrings": "default"
   },
+  "decodeInternal": false,
   "sender": "0x0000000000000000000000000000000000000000",
   "target": "0x0000000000000000000000000000000000000000",
   "data": "0x"
@@ -156,13 +167,16 @@ Inside Docker, native project browsing is unavailable because the backend runs i
 
 `blockNumber`, balances, approvals, and token IDs should be strings when they may exceed JavaScript's safe integer range. Hex strings are accepted for uint fields.
 
-`stateOverride` is optional. When provided, the backend writes the source into the per-request work directory for local runs, or into a temporary file under `<projectPath>/script/` for external-project runs. It then runs `forge inspect <file>:<contractName> bytecode`, passes that creation bytecode as a `run(...)` argument, and executes the simulation script with `forge script --json`.
+`decodeInternal` defaults to `false`. Set it to `true` to add `--decode-internal`
+to the final `forge-kyber test --json` command.
 
-`chain` selects the upstream fork RPC from config, and `blockNumber` selects the fork block. The backend prepares a worker-owned Anvil instance with those fork settings, then runs Forge against the local Anvil RPC. They are not part of the Solidity script signature.
+`stateOverride` is optional. When provided, the backend writes the source into the per-request work directory for local runs, or into a temporary file under `<projectPath>/test/` for external-project runs. It then runs `forge-kyber inspect <file>:<contractName> bytecode`, writes the compiled creation bytecode into the JSON input file, and executes the simulation test with `forge-kyber test --json`.
 
-`projectPath` is optional. When provided, the backend treats it as another Foundry project, runs `forge build src --root <projectPath>`, copies `contracts/src/SimulateTx.s.sol` into a deterministic content-hash file under `<projectPath>/script/`, runs `forge script --json` against that copied script with `--root <projectPath>`, then removes the temporary script file after the last active run using it finishes. Relative paths are resolved against the backend repo root. Paths beginning with `~` are expanded to the backend process user's home directory before validation.
+`chain` selects the upstream fork RPC from config, and `blockNumber` selects the fork block. The backend prepares a worker-owned Anvil instance with those fork settings, then runs Forge against the local Anvil RPC. The Solidity test reads the full request-shaped JSON input from `TXSIM_INPUT_PATH`.
 
-`compiler` is optional and maps to popular Forge compiler flags. Supported fields are `use`, `offline`, `noAutoDetect`, `viaIR`, `useLiteralContent`, `noMetadata`, `evmVersion`, `optimize`, `optimizerRuns`, and `revertStrings`. The backend only passes `use` and `evmVersion` when they are explicitly provided. The state override `forge inspect` compile and final `forge script` run default `viaIR` and `optimize` to `true`; external-project `forge build src` uses the target project's defaults unless compiler fields are explicitly set.
+`projectPath` is optional. When provided, the backend treats it as another Foundry project, runs `forge-kyber build src --root <projectPath>`, copies `contracts/test/SimulateTxRunner.t.sol` into a deterministic content-hash file under `<projectPath>/test/`, runs `forge-kyber test --json` against that copied test with `--root <projectPath>`, then removes the temporary test file after the last active run using it finishes. Relative paths are resolved against the backend repo root. Paths beginning with `~` are expanded to the backend process user's home directory before validation.
+
+`compiler` is optional and maps to popular Forge compiler flags. Supported fields are `use`, `offline`, `noAutoDetect`, `viaIR`, `useLiteralContent`, `noMetadata`, `evmVersion`, `optimize`, `optimizerRuns`, and `revertStrings`. The backend only passes `use` and `evmVersion` when they are explicitly provided. The state override `forge-kyber inspect` compile and final `forge-kyber test` run default `viaIR` and `optimize` to `true`; external-project `forge-kyber build src` uses the target project's defaults unless compiler fields are explicitly set.
 
 The response includes `erc20Transfers`, parsed directly from ERC20 `Transfer` logs in the Forge JSON arena for later fund flow graph construction. Logs emitted from delegatecall frames are attributed by walking up the arena parents to the nearest `CALL` frame, so proxy token transfers use the proxy address rather than the implementation address. Each item contains `token`, `from`, `to`, raw `amount`, and, when metadata is available, `normalizedAmount`, `symbol`, and `logoUrl`.
 

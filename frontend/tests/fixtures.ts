@@ -118,7 +118,7 @@ export function simulateResponse() {
 }
 
 function forgeTraceFixture(eventCount: number): string {
-  return JSON.stringify({
+  const tracePayload = {
     logs: [],
     returns: {},
     success: true,
@@ -191,6 +191,7 @@ function forgeTraceFixture(eventCount: number): string {
               label: "MetaAggregationRouterV2",
               signature: "swap()",
               gasUsed: 70,
+              value: "0xde0b6b3a7640000",
               status: "Return"
             }),
             forgeCallNode({
@@ -220,6 +221,11 @@ function forgeTraceFixture(eventCount: number): string {
     labeled_addresses: {},
     returned: "0x",
     address: null
+  };
+
+  return JSON.stringify({
+    traces: tracePayload.traces,
+    labeled_addresses: tracePayload.labeled_addresses
   });
 }
 
@@ -238,6 +244,7 @@ function forgeCallNode(options: {
   parent?: number;
   signature: string;
   status: string;
+  value?: string;
 }) {
   return {
     parent: options.parent ?? null,
@@ -249,7 +256,7 @@ function forgeCallNode(options: {
       caller: owner,
       address: options.address,
       kind: options.kind ?? "CALL",
-      value: "0x0",
+      value: options.value ?? "0x0",
       data: options.data ?? "0x",
       output: options.output ?? "0x",
       gas_used: options.gasUsed,

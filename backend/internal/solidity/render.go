@@ -17,21 +17,6 @@ var (
 	hexValuePattern     = regexp.MustCompile(`0x[0-9a-fA-F]+`)
 )
 
-func ForgeRunArgs(req model.SimulateRequest, stateBytecode string) []string {
-	stateBytecode, _ = NormalizeBytes("stateBytecode", stateBytecode)
-	data, _ := NormalizeBytes("data", req.Data)
-	return []string{
-		formatLabelOverrides(req.LabelOverrides),
-		formatERC20BalanceOverrides(req.ERC20BalanceOverrides),
-		formatERC20ApprovalOverrides(req.ERC20ApprovalOverrides),
-		formatERC721ApprovalOverrides(req.ERC721ApprovalOverrides),
-		stateBytecode,
-		req.Sender,
-		req.Target,
-		data,
-	}
-}
-
 func ForgeCompilerArgs(config *model.CompilerConfig) []string {
 	return forgeCompilerArgs(config, true)
 }
@@ -102,38 +87,6 @@ func effectiveCompilerConfig(config *model.CompilerConfig) *model.CompilerConfig
 	return &effective
 }
 
-func formatLabelOverrides(items []model.LabelOverride) string {
-	values := make([]string, 0, len(items))
-	for _, item := range items {
-		values = append(values, fmt.Sprintf("(%s,%s)", item.Account, formatStringArg(item.Label)))
-	}
-	return "[" + strings.Join(values, ",") + "]"
-}
-
-func formatERC20BalanceOverrides(items []model.ERC20BalanceOverride) string {
-	values := make([]string, 0, len(items))
-	for _, item := range items {
-		values = append(values, fmt.Sprintf("(%s,%s,%s)", item.Token, item.Account, item.Balance.String()))
-	}
-	return "[" + strings.Join(values, ",") + "]"
-}
-
-func formatERC20ApprovalOverrides(items []model.ERC20ApprovalOverride) string {
-	values := make([]string, 0, len(items))
-	for _, item := range items {
-		values = append(values, fmt.Sprintf("(%s,%s,%s,%s)", item.Token, item.Owner, item.Spender, item.Amount.String()))
-	}
-	return "[" + strings.Join(values, ",") + "]"
-}
-
-func formatERC721ApprovalOverrides(items []model.ERC721ApprovalOverride) string {
-	values := make([]string, 0, len(items))
-	for _, item := range items {
-		values = append(values, fmt.Sprintf("(%s,%s,%s,%s)", item.Token, item.Owner, item.Spender, item.TokenID.String()))
-	}
-	return "[" + strings.Join(values, ",") + "]"
-}
-
 func ValidateAddress(field string, value string) error {
 	if !addressPattern.MatchString(value) {
 		return fmt.Errorf("%s must be a 20-byte hex address", field)
@@ -152,29 +105,6 @@ func NormalizeBytes(field string, value string) (string, error) {
 		return "", fmt.Errorf("%s must be even-length hex bytes", field)
 	}
 	return "0x" + strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(value, "0x"), "0X")), nil
-}
-
-func formatStringArg(value string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for _, r := range value {
-		switch r {
-		case '\\':
-			b.WriteString("\\\\")
-		case '"':
-			b.WriteString("\\\"")
-		case '\n':
-			b.WriteString("\\n")
-		case '\r':
-			b.WriteString("\\r")
-		case '\t':
-			b.WriteString("\\t")
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
 }
 
 func ContractIdentifier(repoRoot string, path string, contractName string) (string, error) {

@@ -2,6 +2,7 @@ name: foundry-tx-simulator
 
 services:
   backend:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: backend/Dockerfile

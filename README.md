@@ -1,6 +1,6 @@
 # Foundry Tx Simulator
 
-Local transaction simulation and visualization tooling. The backend runs Foundry scripts and returns trace, fund-flow, and balance-analysis data; the frontend provides the local UI.
+Local transaction simulation and visualization tooling. The backend runs a Foundry test harness and returns execution trace, fund-flow, and balance-analysis data; the frontend provides the local UI.
 
 ## Quick Start
 
@@ -17,11 +17,20 @@ curl https://get.volta.sh | bash
 volta install node yarn
 ```
 
-Install Foundry:
+Install the pinned Kyber Foundry fork:
 
 ```sh
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
+scripts/install-foundry-kyber.sh
+```
+
+The installer downloads the `thepluck/foundry` release
+`nightly-04bdb43d9435cecec89abc17b3dcb618086c0d99`, verifies the release checksum,
+and installs `forge-kyber`, `cast-kyber`, `anvil-kyber`, and `chisel-kyber` into
+`~/.foundry/bin` by default. Make sure that directory is on your `PATH`, then
+check:
+
+```sh
+forge-kyber --version
 ```
 
 Create local config files from examples:
@@ -108,6 +117,11 @@ rpc_urls:
 
 Use YAML fields such as `listen_addr`, `frontend_port`, `work_dir`, `max_concurrent_runs`, `anvil_port_start`, `rpc_urls`, `explorer_urls`, and `etherscan_api_key` for backend and `./dev.sh` settings. Runtime-only environment variables such as `COINGECKO_API_KEY` are still read directly by the code that needs them. `TXSIM_API_URL` is still available when running the frontend directly and the browser should call a specific backend URL.
 
+Keep local `forge_bin` set to `forge-kyber` and `anvil_bin` set to
+`anvil-kyber`. Set request field `decodeInternal` to `true` when you want the
+runner to add `--decode-internal`; the default is `false`. The backend logs the
+configured binary in the `forge test command` line while running simulations.
+
 For local deployment without Docker:
 
 ```sh
@@ -132,6 +146,8 @@ Then open:
 - Swagger UI: `http://127.0.0.1:8080/docs`
 
 Docker stores recently used Foundry project paths in the `backend-runs` volume at `/data/runs/projects.json`, so project suggestions survive container rebuilds.
+The backend image installs the pinned Kyber Foundry release and runs as
+`linux/amd64`, matching the release's published Linux archive.
 
 Override Docker host ports through `.env` or shell variables:
 
@@ -173,32 +189,32 @@ Use the manual Release workflow dispatch only when re-running release creation f
 
 ## Foundry Contracts
 
-The local simulation script and its Foundry project live in `contracts/`.
+The local simulation test harness and its Foundry project live in `contracts/`.
 
 ### Build
 
 ```shell
 $ cd contracts
-$ forge build
+$ forge-kyber build
 ```
 
 ### Test
 
 ```shell
 $ cd contracts
-$ forge test
+$ forge-kyber test
 ```
 
 ### Format
 
 ```shell
 $ cd contracts
-$ forge fmt
+$ forge-kyber fmt
 ```
 
 You can also run from the repo root by passing `--root contracts`:
 
 ```shell
-$ forge build --root contracts
-$ forge test --root contracts
+$ forge-kyber build --root contracts
+$ forge-kyber test --root contracts
 ```
