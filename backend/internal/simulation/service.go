@@ -529,17 +529,14 @@ func (s *Service) retainScriptCopy(scriptPath string, source []byte) (func(), er
 
 func (s *Service) releaseScriptCopy(scriptPath string) {
 	s.scriptCopiesMu.Lock()
+	defer s.scriptCopiesMu.Unlock()
+
 	count := s.scriptCopies[scriptPath]
-	shouldRemove := count <= 1
-	if shouldRemove {
+	if count <= 1 {
 		delete(s.scriptCopies, scriptPath)
+		_ = os.Remove(scriptPath)
 	} else {
 		s.scriptCopies[scriptPath] = count - 1
-	}
-	s.scriptCopiesMu.Unlock()
-
-	if shouldRemove {
-		_ = os.Remove(scriptPath)
 	}
 }
 
