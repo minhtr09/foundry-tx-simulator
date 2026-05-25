@@ -210,7 +210,7 @@ func openAPISchemaCustomizer(_ string, t reflect.Type, tag reflect.StructTag, sc
 
 func enrichOpenAPISchemas(schemas openapi3.Schemas) {
 	setPropertyExample(schemas, "SimulateRequest", "chain", "mainnet")
-	setPropertyDescription(schemas, "SimulateRequest", "projectPath", "Optional Foundry project root. When set, the backend runs `forge build src`, copies the simulation test harness under this project's test folder, and runs forge-kyber test with this root.")
+	setPropertyDescription(schemas, "SimulateRequest", "projectPath", "Optional Foundry project root. When set, the backend runs `forge-kyber build src`, copies the simulation test harness under this project's test folder, and runs forge-kyber test with this root.")
 	setPropertyExample(schemas, "SimulateRequest", "projectPath", "~/project")
 	setPropertyDescription(schemas, "SimulateRequest", "stateOverrideBytecode", "Backend-generated compiled state override bytecode for the simulation test input. Client requests should omit this field.")
 	setPropertyDescription(schemas, "SimulateRequest", "decodeInternal", "When true, passes --decode-internal to forge-kyber test. Defaults to false.")

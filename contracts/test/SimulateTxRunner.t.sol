@@ -55,6 +55,35 @@ contract SimulateTxRunnerTest is Test {
     _simulate(request);
   }
 
+  function testReadRequestFromJsonFile() public view {
+    SimulateRequest memory request = _readRequest(vm.readFile("test/fixtures/simulate-request.json"));
+
+    assertEq(request.chain, "mainnet");
+    assertEq(request.blockNumber, 23_000_000);
+    assertEq(request.projectPath, "/tmp/project");
+    assertEq(request.labelOverrides.length, 1);
+    assertEq(request.labelOverrides[0].account, address(1));
+    assertEq(request.labelOverrides[0].label, "Sender");
+    assertEq(request.erc20BalanceOverrides.length, 1);
+    assertEq(request.erc20BalanceOverrides[0].token, address(2));
+    assertEq(request.erc20BalanceOverrides[0].account, address(3));
+    assertEq(request.erc20BalanceOverrides[0].balance, 1000);
+    assertEq(request.erc20ApprovalOverrides.length, 1);
+    assertEq(request.erc20ApprovalOverrides[0].token, address(4));
+    assertEq(request.erc20ApprovalOverrides[0].owner, address(5));
+    assertEq(request.erc20ApprovalOverrides[0].spender, address(6));
+    assertEq(request.erc20ApprovalOverrides[0].amount, 2000);
+    assertEq(request.erc721ApprovalOverrides.length, 1);
+    assertEq(request.erc721ApprovalOverrides[0].token, address(7));
+    assertEq(request.erc721ApprovalOverrides[0].owner, address(8));
+    assertEq(request.erc721ApprovalOverrides[0].spender, address(9));
+    assertEq(request.erc721ApprovalOverrides[0].tokenId, 7);
+    assertEq(request.stateOverrideBytecode, hex"6000");
+    assertEq(request.sender, address(10));
+    assertEq(request.target, address(11));
+    assertEq(request.data, hex"1234");
+  }
+
   function _simulate(SimulateRequest memory request) internal {
     for (uint256 i = 0; i < request.labelOverrides.length; i++) {
       vm.label(request.labelOverrides[i].account, request.labelOverrides[i].label);

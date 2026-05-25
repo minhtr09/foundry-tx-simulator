@@ -6,7 +6,7 @@ base_url="https://github.com/thepluck/foundry/releases/download/${foundry_tag}"
 bin_dir="${FOUNDRY_BIN_DIR:-${HOME}/.foundry/bin}"
 
 case "$(uname -s):$(uname -m)" in
-  Linux:x86_64 | Linux:amd64)
+  Linux:x86_64|Linux:amd64)
     asset="foundry_nightly_linux_amd64.tar.gz"
     ;;
   Darwin:arm64)
