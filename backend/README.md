@@ -1,6 +1,6 @@
 # Foundry Tx Simulator Backend
 
-Local Go server that accepts simulation parameters, maps `chain` to an RPC URL from config, compiles optional state override Solidity, runs the simulation test harness, and returns the execution trace with backend-derived fund-flow and balance analysis.
+Local Go server that accepts simulation parameters or a transaction hash, maps `chain` to an RPC URL from config, runs either the simulation test harness or `cast-kyber run`, and returns the execution trace with backend-derived fund-flow and balance analysis.
 
 ## Run
 
@@ -10,9 +10,9 @@ Install the pinned Kyber Foundry fork from the repo root before running local si
 scripts/install-foundry-kyber.sh
 ```
 
-The backend expects `forge_bin: "forge-kyber"` and `anvil_bin: "anvil-kyber"` so
-the simulation runner can use the forked `forge-kyber test --json` output and
-optionally request decoded internal calls.
+The backend expects `forge_bin: "forge-kyber"`, `cast_bin: "cast-kyber"`, and
+`anvil_bin: "anvil-kyber"` so the runners use the pinned Kyber Foundry fork and
+can optionally request decoded internal calls.
 
 ```sh
 cd backend
@@ -48,9 +48,9 @@ Set the local backend listen address in YAML:
 listen_addr: "127.0.0.1:18080"
 ```
 
-The server loads config from `TXSIM_CONFIG` when set. Otherwise it searches from the current working directory for `config.yml`, `config.yaml`, `config.example.yml`, and `config.example.yaml`; direct `go run` commands from `backend/` also check the same names in `..`. `./dev.sh` uses repo-root `config.yml` by default.
+The server loads config from `TXSIM_CONFIG` when set. Otherwise it searches from the current working directory for `config.yml` and `config.example.yml`; direct `go run` commands from `backend/` also check the same names in `..`. `./dev.sh` uses repo-root `config.yml` by default.
 
-Use repo-root `config.yml` for local development or `config.example.yaml` as a template for another config file. The backend loads `.env` from the repo root and `backend/.env` with `gotenv`. YAML config fields only use environment values when the YAML explicitly references them with `${...}`.
+Use repo-root `config.yml` for local development or `config.example.yml` as a template for another config file. The backend loads `.env` from the repo root and `backend/.env` with `gotenv`. YAML config fields only use environment values when the YAML explicitly references them with `${...}`.
 
 Use the repo-root `.env.example` as the template for `.env`. Put secrets and machine-specific values in `.env`:
 
@@ -80,6 +80,7 @@ project_cache_path: "backend/.runs/projects.json"
 timeout_seconds: 300
 max_concurrent_runs: 1
 forge_bin: "forge-kyber"
+cast_bin: "cast-kyber"
 anvil_bin: "anvil-kyber"
 anvil_host: "127.0.0.1"
 anvil_port_start: 18545
@@ -90,7 +91,7 @@ explorer_urls:
   mainnet: "https://etherscan.io"
 ```
 
-Chain RPC endpoints are read from the YAML `rpc_urls` map. `explorer_urls` maps the same chain names to block explorer base URLs for frontend address links. `etherscan_api_key` is backend-side only and maps to `forge-kyber test --etherscan-api-key`; set it directly in YAML or use `${ETHERSCAN_API_KEY}`. `frontend_port` controls the Vite server when using `./dev.sh`. Set `COINGECKO_API_KEY` in `.env` if you want CoinGecko requests to include a demo API key.
+Chain RPC endpoints are read from the YAML `rpc_urls` map. `explorer_urls` maps the same chain names to block explorer base URLs for frontend address links. `etherscan_api_key` is backend-side only and maps to `forge-kyber test --etherscan-api-key` and `cast-kyber run --etherscan-api-key`; set it directly in YAML or use `${ETHERSCAN_API_KEY}`. `frontend_port` controls the Vite server when using `./dev.sh`. Set `COINGECKO_API_KEY` in `.env` if you want CoinGecko requests to include a demo API key.
 
 Simulation records are stored in a SQLite database at `<work_dir>/records.sqlite`. `project_cache_path` stores recently used Foundry project paths. Local runs default to `backend/.runs/projects.json`; Docker uses `/data/runs` for records and project cache data, and persists that directory with the `backend-runs` volume.
 
@@ -104,7 +105,8 @@ Simulation records are stored in a SQLite database at `<work_dir>/records.sqlite
 - `GET /chains`
 - `GET /projects`
 - `GET /browse/project`
-- `POST /simulate`
+- `POST /simulation`
+- `POST /tx`
 
 `GET /projects` returns cached Foundry project paths in most-recent-first order. The frontend uses it for Foundry Project suggestions.
 
@@ -165,6 +167,8 @@ Inside Docker, native project browsing is unavailable because the backend runs i
 }
 ```
 
+Send this body to `POST /simulation`.
+
 `blockNumber`, balances, approvals, and token IDs should be strings when they may exceed JavaScript's safe integer range. Hex strings are accepted for uint fields.
 
 `decodeInternal` defaults to `false`. Set it to `true` to add `--decode-internal`
@@ -178,11 +182,32 @@ to the final `forge-kyber test --json` command.
 
 `compiler` is optional and maps to popular Forge compiler flags. Supported fields are `use`, `offline`, `noAutoDetect`, `viaIR`, `useLiteralContent`, `noMetadata`, `evmVersion`, `optimize`, `optimizerRuns`, and `revertStrings`. The backend only passes `use` and `evmVersion` when they are explicitly provided. The state override `forge-kyber inspect` compile and final `forge-kyber test` run default `viaIR` and `optimize` to `true`; external-project `forge-kyber build src` uses the target project's defaults unless compiler fields are explicitly set.
 
+## Tx Request
+
+```json
+{
+  "chain": "mainnet",
+  "txHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "decodeInternal": false,
+  "quick": false
+}
+```
+
+Send this body to `POST /tx`. The backend runs:
+
+```sh
+cast-kyber run <txHash> --rpc-url <configured chain RPC> --json
+```
+
+When `decodeInternal` is `true`, it adds `--decode-internal`. When `quick` is
+`true`, it adds `--quick`. When `etherscan_api_key` is configured, it adds
+`--etherscan-api-key <key>`.
+
 The response includes `erc20Transfers`, parsed directly from ERC20 `Transfer` logs in the Forge JSON arena for later fund flow graph construction. Logs emitted from delegatecall frames are attributed by walking up the arena parents to the nearest `CALL` frame, so proxy token transfers use the proxy address rather than the implementation address. Each item contains `token`, `from`, `to`, raw `amount`, and, when metadata is available, `normalizedAmount`, `symbol`, and `logoUrl`.
 
 The response also includes `balanceAnalysis`, which aggregates ERC20 transfers into signed per-user token balance changes. It fetches token decimals and symbols from the configured chain RPC, gets current USD prices from DefiLlama and CoinGecko, and may use DexScreener only for token display metadata such as symbol/logo. Trust Wallet token logo URLs are used as a fallback when the token address can be checksummed. USD values are only calculated when both a price and token decimals are available.
 
-Each started simulation is saved in `<work_dir>/records.sqlite`. The response `id` can be used later to reload the exact request and display its previous output:
+Each started simulation or transaction replay is saved in `<work_dir>/records.sqlite`. The response `id` can be used later to reload the exact request and display its previous output:
 
 ```sh
 curl http://127.0.0.1:8080/requests/20260511T120000.000000000-deadbeef

@@ -1,4 +1,4 @@
-import type { ChainConfig, ProjectsResponse, SimulateRequest, SimulateResponse, SimulationRecord } from "./types";
+import type { ChainConfig, ProjectsResponse, SimulateRequest, SimulateResponse, SimulationRecord, TxRequest } from "./types";
 import type { ZodType } from "zod";
 import {
   browseProjectResponseSchema,
@@ -13,6 +13,8 @@ export type SimulationRunResult = {
   requestId: string;
   response: SimulateResponse;
 };
+
+export type RunRequestInput = { kind: "simulation"; request: SimulateRequest } | { kind: "tx"; request: TxRequest };
 
 export async function fetchChainConfig(apiUrl: string): Promise<ChainConfig> {
   const response = await fetch(`${trimSlash(apiUrl)}/chains`);
@@ -56,7 +58,7 @@ export async function fetchSimulationRecord(apiUrl: string, requestId: string, s
 }
 
 export async function simulate(apiUrl: string, request: SimulateRequest, signal?: AbortSignal): Promise<SimulateResponse> {
-  const response = await fetch(`${trimSlash(apiUrl)}/simulate`, {
+  const response = await fetch(`${trimSlash(apiUrl)}/simulation`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -66,13 +68,33 @@ export async function simulate(apiUrl: string, request: SimulateRequest, signal?
   });
   const payload = await readJSON(response);
   if (!response.ok) {
-    throw new Error(errorMessage(payload, `simulate request failed: ${response.status}`));
+    throw new Error(errorMessage(payload, `simulation request failed: ${response.status}`));
   }
-  return parsePayload(simulateResponseSchema, payload, "simulate");
+  return parsePayload(simulateResponseSchema, payload, "simulation");
 }
 
-export async function runSimulation(apiUrl: string, request: SimulateRequest, signal?: AbortSignal): Promise<SimulationRunResult> {
-  const response = await simulate(apiUrl, request, signal);
+export async function replayTx(apiUrl: string, request: TxRequest, signal?: AbortSignal): Promise<SimulateResponse> {
+  const response = await fetch(`${trimSlash(apiUrl)}/tx`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    signal,
+    body: JSON.stringify(request)
+  });
+  const payload = await readJSON(response);
+  if (!response.ok) {
+    throw new Error(errorMessage(payload, `tx request failed: ${response.status}`));
+  }
+  return parsePayload(simulateResponseSchema, payload, "tx");
+}
+
+export async function runRequest(
+  apiUrl: string,
+  input: RunRequestInput,
+  signal?: AbortSignal
+): Promise<SimulationRunResult> {
+  const response = input.kind === "tx" ? await replayTx(apiUrl, input.request, signal) : await simulate(apiUrl, input.request, signal);
   return { requestId: response.id, response };
 }
 

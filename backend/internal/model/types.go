@@ -24,6 +24,20 @@ type SimulateRequest struct {
 	Data                    string                   `json:"data" validate:"hex_bytes"`
 }
 
+type TxRequest struct {
+	Chain          string `json:"chain" validate:"required"`
+	TxHash         string `json:"txHash" validate:"required,tx_hash"`
+	DecodeInternal bool   `json:"decodeInternal"`
+	Quick          bool   `json:"quick"`
+}
+
+type RecordKind string
+
+const (
+	RecordKindSimulation RecordKind = "simulation"
+	RecordKindTx         RecordKind = "tx"
+)
+
 type LabelOverride struct {
 	Account string `json:"account" validate:"required,eth_address"`
 	Label   string `json:"label" validate:"required,notblank"`
@@ -88,7 +102,8 @@ type BrowseProjectResponse struct {
 
 type SimulationRecord struct {
 	ID       string           `json:"id"`
-	Request  SimulateRequest  `json:"request"`
+	Kind     RecordKind       `json:"kind"`
+	Request  map[string]any   `json:"request"`
 	Response SimulateResponse `json:"response"`
 }
 

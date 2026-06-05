@@ -18,11 +18,11 @@ RUN /tmp/install-foundry-kyber.sh \
   && rm /tmp/install-foundry-kyber.sh
 
 ENV PATH="/root/.foundry/bin:${PATH}"
-ENV TXSIM_CONFIG="/app/config.docker.yaml"
+ENV TXSIM_CONFIG="/app/config.docker.yml"
 
 WORKDIR /app
 COPY --from=builder /out/txsim-server /usr/local/bin/txsim-server
-COPY config.docker.yaml ./config.docker.yaml
+COPY config.docker.yml ./config.docker.yml
 COPY contracts ./contracts
 RUN mkdir -p /data/runs
 

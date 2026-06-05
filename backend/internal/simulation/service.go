@@ -49,6 +49,7 @@ type anvilWorker interface {
 type Service struct {
 	cfg     config.Config
 	forge   forgeRunner
+	cast    forgeRunner
 	prices  priceProvider
 	workers chan *simulationWorker
 
@@ -76,6 +77,10 @@ func NewService(cfg config.Config) *Service {
 		cfg: cfg,
 		forge: forge.Runner{
 			Bin:      cfg.ForgeBin,
+			RepoRoot: cfg.RepoRoot,
+		},
+		cast: forge.Runner{
+			Bin:      cfg.CastBin,
 			RepoRoot: cfg.RepoRoot,
 		},
 		prices:     prices.DefaultProvider(cfg.RPCURLs),
@@ -165,7 +170,7 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 			slog.Info("simulation finished", attrs...)
 		}
 		if runStarted {
-			if err := s.SaveRecord(req, resp); err != nil {
+			if err := s.SaveRecord(model.RecordKindSimulation, req, resp); err != nil {
 				slog.Warn("persist simulation record", "run_id", runID, "error", err)
 			}
 		}
@@ -364,6 +369,119 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 	return finish(http.StatusOK)
 }
 
+func (s *Service) ReplayTx(parent context.Context, req model.TxRequest) (model.SimulateResponse, int) {
+	start := time.Now()
+	runID := runid.New()
+	resp := model.SimulateResponse{ID: runID}
+	runStarted := false
+	finish := func(status int) (model.SimulateResponse, int) {
+		attrs := []any{
+			"run_id", runID,
+			"status", status,
+			"success", resp.Success,
+			"exit_code", resp.ExitCode,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"chain", req.Chain,
+			"tx_hash", req.TxHash,
+		}
+		if resp.Error != "" {
+			attrs = append(attrs, "error", resp.Error)
+		}
+		if status >= http.StatusBadRequest {
+			slog.Warn("tx replay finished", attrs...)
+		} else {
+			slog.Info("tx replay finished", attrs...)
+		}
+		if runStarted {
+			if err := s.SaveRecord(model.RecordKindTx, req, resp); err != nil {
+				slog.Warn("persist tx replay record", "run_id", runID, "error", err)
+			}
+		}
+		return resp, status
+	}
+
+	rpcURL, err := s.validateTxRequest(&req)
+	if err != nil {
+		resp.Error = err.Error()
+		return finish(http.StatusBadRequest)
+	}
+	etherscanAPIKey := strings.TrimSpace(s.cfg.EtherscanAPIKey)
+
+	slog.Info(
+		"tx replay started",
+		"run_id", runID,
+		"chain", req.Chain,
+		"tx_hash", req.TxHash,
+		"decode_internal", req.DecodeInternal,
+		"quick", req.Quick,
+		"has_etherscan_key", etherscanAPIKey != "",
+	)
+
+	timeout := time.Duration(s.cfg.TimeoutSeconds) * time.Second
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	castArgs := []string{
+		"run",
+		req.TxHash,
+		"--rpc-url", rpcURL,
+		"--json",
+	}
+	if req.DecodeInternal {
+		castArgs = append(castArgs, "--decode-internal")
+	}
+	if req.Quick {
+		castArgs = append(castArgs, "--quick")
+	}
+	if etherscanAPIKey != "" {
+		castArgs = append(castArgs, "--etherscan-api-key", etherscanAPIKey)
+	}
+
+	runStarted = true
+	result := s.cast.Run(ctx, castArgs...)
+	logForgeResult(runID, "cast run", result)
+	resp.DurationMillis = time.Since(start).Milliseconds()
+	resp.Stdout = solidity.RedactRPC(solidity.StripANSI(result.Stdout), rpcURL, req.Chain)
+	resp.Stderr = solidity.RedactRPC(solidity.StripANSI(result.Stderr), rpcURL, req.Chain)
+	combined := strings.TrimSpace(resp.Stdout + "\n" + resp.Stderr)
+	resp.ExitCode = result.ExitCode
+	resp.Success = result.Err == nil
+
+	parsed, err := traceparser.ParseOutput(resp.Stdout)
+	if err != nil {
+		resp.Success = false
+		resp.Trace = combined
+		resp.Error = "parse cast run json trace: " + err.Error()
+		return finish(http.StatusBadGateway)
+	}
+	resp.Trace = parsed.Trace
+	slog.Info("cast output parsed", "run_id", runID, "trace_bytes", len(resp.Trace), "erc20_transfers", len(parsed.ERC20Transfers))
+	if result.Err != nil {
+		return finish(http.StatusOK)
+	}
+	resp.ERC20Transfers = parsed.ERC20Transfers
+	slog.Info("fund flow extracted", "run_id", runID, "erc20_transfers", len(resp.ERC20Transfers))
+	priceMap := s.fetchTokenPrices(ctx, runID, req.Chain, resp.ERC20Transfers)
+	resp.ERC20Transfers = fundflow.EnrichERC20Transfers(resp.ERC20Transfers, priceMap)
+	resp.BalanceAnalysis = fundflow.AnalyzeBalanceChanges(resp.ERC20Transfers, priceMap)
+	balanceChanges := 0
+	userTotals := 0
+	if resp.BalanceAnalysis != nil {
+		balanceChanges = len(resp.BalanceAnalysis.Changes)
+		userTotals = len(resp.BalanceAnalysis.UserTotals)
+	}
+	slog.Info(
+		"balance analysis completed",
+		"run_id", runID,
+		"price_metadata_tokens", len(priceMap),
+		"usd_priced_tokens", fundflow.CountUSDPrices(priceMap),
+		"balance_changes", balanceChanges,
+		"user_totals", userTotals,
+	)
+
+	return finish(http.StatusOK)
+}
+
 func (s *Service) validateRequest(req *model.SimulateRequest) (string, error) {
 	req.Chain = strings.TrimSpace(req.Chain)
 	projectPath, err := s.normalizeProjectPath(req.ProjectPath)
@@ -394,6 +512,23 @@ func (s *Service) validateRequest(req *model.SimulateRequest) (string, error) {
 		return "", err
 	}
 
+	return rpcURL, nil
+}
+
+func (s *Service) validateTxRequest(req *model.TxRequest) (string, error) {
+	req.Chain = strings.TrimSpace(req.Chain)
+	req.TxHash = strings.TrimSpace(req.TxHash)
+	if err := validateTxRequest(req); err != nil {
+		return "", err
+	}
+
+	rpcURL, ok := s.cfg.RPCURLs[req.Chain]
+	if !ok {
+		return "", fmt.Errorf("unknown chain %q", req.Chain)
+	}
+	if strings.TrimSpace(rpcURL) == "" {
+		return "", fmt.Errorf("rpc url for chain %q is empty after environment expansion", req.Chain)
+	}
 	return rpcURL, nil
 }
 
@@ -690,10 +825,10 @@ func logForgeResult(runID string, stage string, result forge.Result) {
 	}
 	if result.Err != nil {
 		attrs = append(attrs, "error", result.Err)
-		slog.Warn("forge command completed", attrs...)
+		slog.Warn("foundry command completed", attrs...)
 		return
 	}
-	slog.Info("forge command completed", attrs...)
+	slog.Info("foundry command completed", attrs...)
 }
 
 func normalizedHexBytes(value string) int {

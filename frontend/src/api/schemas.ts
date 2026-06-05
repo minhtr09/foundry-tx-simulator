@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const bytesSchema = z.string().regex(/^0x([0-9a-fA-F]{2})*$/);
+const txHashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const uint256Schema = z.string().regex(/^(0x[0-9a-fA-F]+|[0-9]+)$/);
 
 export const labelOverrideSchema = z.object({
@@ -80,6 +81,16 @@ export const simulateRequestSchema = z.object({
   data: bytesSchema
 });
 
+export const txRequestSchema = z.object({
+  chain: z.string().min(1),
+  txHash: txHashSchema,
+  decodeInternal: z.boolean().default(false),
+  quick: z.boolean().default(false)
+});
+
+export const requestKindSchema = z.enum(["simulation", "tx"]);
+export const runRequestSchema = z.union([simulateRequestSchema, txRequestSchema]);
+
 export const erc20TransferSchema = z.object({
   token: z.string(),
   from: z.string(),
@@ -121,11 +132,23 @@ export const simulateResponseSchema = z.object({
   error: z.string().optional()
 });
 
-export const simulationRecordSchema = z.object({
-  id: z.string(),
-  request: simulateRequestSchema,
-  response: simulateResponseSchema
-});
+export const simulationRecordSchema = z
+  .object({
+    id: z.string(),
+    kind: requestKindSchema.default("simulation"),
+    request: runRequestSchema,
+    response: simulateResponseSchema
+  })
+  .superRefine((record, context) => {
+    const schema = record.kind === "simulation" ? simulateRequestSchema : txRequestSchema;
+    if (!schema.safeParse(record.request).success) {
+      context.addIssue({
+        code: "custom",
+        path: ["request"],
+        message: `must match ${record.kind} request shape`
+      });
+    }
+  });
 
 export type LabelOverride = z.infer<typeof labelOverrideSchema>;
 export type ERC20BalanceOverride = z.infer<typeof erc20BalanceOverrideSchema>;
@@ -136,6 +159,9 @@ export type CompilerConfig = z.infer<typeof compilerConfigSchema>;
 export type ChainConfig = z.infer<typeof chainConfigSchema>;
 export type ProjectsResponse = z.infer<typeof projectsResponseSchema>;
 export type SimulateRequest = z.infer<typeof simulateRequestSchema>;
+export type TxRequest = z.infer<typeof txRequestSchema>;
+export type RequestKind = z.infer<typeof requestKindSchema>;
+export type RunRequest = z.infer<typeof runRequestSchema>;
 export type ERC20Transfer = z.infer<typeof erc20TransferSchema>;
 export type TokenBalanceChange = z.infer<typeof tokenBalanceChangeSchema>;
 export type UserUSDChange = z.infer<typeof userUSDChangeSchema>;

@@ -329,6 +329,64 @@ func TestSimulateDecodeInternalTrueAddsForgeFlag(t *testing.T) {
 	}
 }
 
+func TestReplayTxRunsCastRun(t *testing.T) {
+	cfg := config.Config{
+		ListenAddr:      "127.0.0.1:0",
+		RepoRoot:        t.TempDir(),
+		WorkDir:         filepath.Join(t.TempDir(), "runs"),
+		TimeoutSeconds:  30,
+		MaxConcurrent:   1,
+		CastBin:         "cast",
+		EtherscanAPIKey: "etherscan-test-key",
+		RPCURLs: map[string]string{
+			"mainnet": "http://127.0.0.1:8545",
+		},
+	}
+	fake := &fakeForgeRunner{
+		results: []forge.Result{
+			{Stdout: castRunJSONTrace()},
+		},
+	}
+	service := NewService(cfg)
+	t.Cleanup(service.Close)
+	service.cast = fake
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	resp, status := service.ReplayTx(context.Background(), model.TxRequest{
+		Chain:          "mainnet",
+		TxHash:         txHash,
+		DecodeInternal: true,
+		Quick:          true,
+	})
+
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("tx replay failed: status=%d resp=%#v", status, resp)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("cast call count = %d, want 1: %#v", len(fake.calls), fake.calls)
+	}
+	args := fake.calls[0]
+	if !hasArgSequence(args, "run", txHash) ||
+		!hasArgSequence(args, "--rpc-url", "http://127.0.0.1:8545") ||
+		!hasArgSequence(args, "--etherscan-api-key", "etherscan-test-key") ||
+		!containsArg(args, "--json") ||
+		!containsArg(args, "--decode-internal") ||
+		!containsArg(args, "--quick") {
+		t.Fatalf("unexpected cast run args: %#v", args)
+	}
+	if len(fake.envs) != 1 || len(fake.envs[0]) != 0 {
+		t.Fatalf("cast run should not receive forge test env: %#v", fake.envs)
+	}
+
+	record, err := service.LoadRecord(resp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Kind != model.RecordKindTx || record.Request["txHash"] != txHash {
+		t.Fatalf("unexpected tx replay record: %#v", record)
+	}
+}
+
 func TestSimulateExternalProjectBuildsSrcCompilesOverrideAndRunsCopiedTest(t *testing.T) {
 	repoRoot := t.TempDir()
 	testSource := writeSimulationTestHarness(t, repoRoot)
@@ -519,11 +577,19 @@ func TestSimulatePersistsRequestRecord(t *testing.T) {
 	if record.ID != resp.ID || record.Response.ID != resp.ID {
 		t.Fatalf("unexpected record IDs: %#v", record)
 	}
-	if record.Request.BlockNumber != "1" || record.Request.Sender != "0x0000000000000000000000000000000000000001" {
+	if record.Kind != model.RecordKindSimulation {
+		t.Fatalf("record kind = %q, want simulation", record.Kind)
+	}
+	if record.Request["blockNumber"] != "1" || record.Request["sender"] != "0x0000000000000000000000000000000000000001" {
 		t.Fatalf("unexpected saved request: %#v", record.Request)
 	}
-	if record.Request.LabelOverrides[0].Label != "Sender" {
-		t.Fatalf("saved request should include normalized sender label: %#v", record.Request.LabelOverrides)
+	labels, ok := record.Request["labelOverrides"].([]any)
+	if !ok || len(labels) == 0 {
+		t.Fatalf("saved request should include normalized sender label: %#v", record.Request)
+	}
+	firstLabel, ok := labels[0].(map[string]any)
+	if !ok || firstLabel["label"] != "Sender" {
+		t.Fatalf("saved request should include normalized sender label: %#v", record.Request)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.WorkDir, recordDatabaseFile)); err != nil {
 		t.Fatalf("record database was not created: %v", err)
@@ -627,7 +693,7 @@ func loadTestConfig(t *testing.T) config.Config {
 	t.Helper()
 
 	oldConfigPath, hadConfigPath := os.LookupEnv("TXSIM_CONFIG")
-	configPath := filepath.Clean(filepath.Join("..", "..", "..", "config.example.yaml"))
+	configPath := filepath.Clean(filepath.Join("..", "..", "..", "config.example.yml"))
 	if err := os.Setenv("TXSIM_CONFIG", configPath); err != nil {
 		t.Fatal(err)
 	}
@@ -878,6 +944,63 @@ func uint32Ptr(value uint32) *uint32 {
 
 func forgeJSONTrace() string {
 	return forgeJSONTraceWithCall(true, "transfer")
+}
+
+func castRunJSONTrace() string {
+	return fmt.Sprintf(`{
+  "traces": [
+    [
+      "Execution",
+      {
+        "arena": [
+          {
+            "parent": null,
+            "children": [1],
+            "idx": 0,
+            "trace": {
+              "depth": 0,
+              "success": true,
+              "caller": "0x0000000000000000000000000000000000000000",
+              "address": "0x0000000000000000000000000000000000000001",
+              "kind": "CALL",
+              "value": "0x0",
+              "data": "0x",
+              "output": "0x",
+              "gas_used": 1000,
+              "gas_limit": 1000000,
+              "status": "Return",
+              "steps": []
+            },
+            "logs": [],
+            "ordering": [{"Call": 0}]
+          },
+          {
+            "parent": 0,
+            "children": [],
+            "idx": 1,
+            "trace": {
+              "depth": 1,
+              "success": true,
+              "caller": "0x0000000000000000000000000000000000000001",
+              "address": "%s",
+              "kind": "CALL",
+              "value": "0x0",
+              "data": "0x",
+              "output": "0x",
+              "gas_used": 500,
+              "gas_limit": 100000,
+              "status": "Return",
+              "steps": []
+            },
+            "logs": [],
+            "ordering": []
+          }
+        ]
+      }
+    ]
+  ],
+  "labeled_addresses": {}
+}`, wethAddress)
 }
 
 func forgeJSONTraceWithCall(success bool, function string) string {

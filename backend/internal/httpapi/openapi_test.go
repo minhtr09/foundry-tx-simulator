@@ -33,8 +33,11 @@ func TestOpenAPIEndpoint(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing paths in spec: %#v", spec)
 	}
-	if _, ok := paths["/simulate"]; !ok {
-		t.Fatalf("missing /simulate path: %#v", paths)
+	if _, ok := paths["/simulation"]; !ok {
+		t.Fatalf("missing /simulation path: %#v", paths)
+	}
+	if _, ok := paths["/tx"]; !ok {
+		t.Fatalf("missing /tx path: %#v", paths)
 	}
 	if _, ok := paths["/projects"]; !ok {
 		t.Fatalf("missing /projects path: %#v", paths)
@@ -70,6 +73,20 @@ func TestOpenAPIEndpoint(t *testing.T) {
 	if _, ok := properties["decodeInternal"]; !ok {
 		t.Fatalf("decodeInternal should be a request property: %#v", properties)
 	}
+	txRequest, ok := schemas["TxRequest"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing TxRequest schema: %#v", schemas)
+	}
+	txProperties, ok := txRequest["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing TxRequest properties: %#v", txRequest)
+	}
+	if _, ok := txProperties["txHash"]; !ok {
+		t.Fatalf("txHash should be a tx request property: %#v", txProperties)
+	}
+	if _, ok := txProperties["quick"]; !ok {
+		t.Fatalf("quick should be a tx request property: %#v", txProperties)
+	}
 }
 
 func TestSwaggerUIEndpoint(t *testing.T) {
@@ -90,7 +107,7 @@ func TestSwaggerUIEndpoint(t *testing.T) {
 
 func TestCORSOptionsEndpoint(t *testing.T) {
 	server := NewServer(testConfig(t), "")
-	req := httptest.NewRequest(http.MethodOptions, "/simulate", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/simulation", nil)
 	rec := httptest.NewRecorder()
 
 	server.Routes().ServeHTTP(rec, req)
@@ -179,7 +196,7 @@ func TestRequestRecordEndpoint(t *testing.T) {
 	cfg := testConfig(t)
 	server := NewServer(cfg, "")
 	id := "20260511T120000.000000000-deadbeef"
-	err := server.simulator.SaveRecord(model.SimulateRequest{
+	err := server.simulator.SaveRecord(model.RecordKindSimulation, model.SimulateRequest{
 		Chain:       "mainnet",
 		BlockNumber: "123",
 		Sender:      "0x0000000000000000000000000000000000000001",
@@ -208,7 +225,7 @@ func TestRequestRecordEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.ID != id || payload.Request.BlockNumber != "123" || payload.Response.ID != id {
+	if payload.ID != id || payload.Kind != model.RecordKindSimulation || payload.Request["blockNumber"] != "123" || payload.Response.ID != id {
 		t.Fatalf("unexpected record: %#v", payload)
 	}
 }
@@ -247,7 +264,7 @@ func TestDebugHTTPLogsRequestAndResponse(t *testing.T) {
 	})
 
 	server := NewServer(testConfig(t), "")
-	req := httptest.NewRequest(http.MethodPost, "/simulate", strings.NewReader(`{"bad":true,"etherscanApiKey":"secret-key"}`))
+	req := httptest.NewRequest(http.MethodPost, "/simulation", strings.NewReader(`{"bad":true,"etherscanApiKey":"secret-key"}`))
 	rec := httptest.NewRecorder()
 
 	server.Routes().ServeHTTP(rec, req)
@@ -256,7 +273,7 @@ func TestDebugHTTPLogsRequestAndResponse(t *testing.T) {
 	for _, want := range []string{
 		`msg="http request"`,
 		`method=POST`,
-		`path=/simulate`,
+		`path=/simulation`,
 		`etherscanApiKey`,
 		`<redacted>`,
 		`msg="http response"`,

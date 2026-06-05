@@ -37,12 +37,13 @@ func (s *Service) LoadRecord(id string) (model.SimulationRecord, error) {
 		return model.SimulationRecord{}, err
 	}
 
+	var kind string
 	var requestJSON []byte
 	var responseJSON []byte
 	err = db.QueryRow(
-		"SELECT request_json, response_json FROM simulation_records WHERE id = ?",
+		"SELECT kind, request_json, response_json FROM simulation_records WHERE id = ?",
 		id,
-	).Scan(&requestJSON, &responseJSON)
+	).Scan(&kind, &requestJSON, &responseJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.SimulationRecord{}, ErrRecordNotFound
 	}
@@ -50,9 +51,12 @@ func (s *Service) LoadRecord(id string) (model.SimulationRecord, error) {
 		return model.SimulationRecord{}, err
 	}
 
-	var req model.SimulateRequest
+	var req map[string]any
 	if err := json.Unmarshal(requestJSON, &req); err != nil {
 		return model.SimulationRecord{}, fmt.Errorf("decode request record: %w", err)
+	}
+	if req == nil {
+		req = map[string]any{}
 	}
 
 	var resp model.SimulateResponse
@@ -65,16 +69,18 @@ func (s *Service) LoadRecord(id string) (model.SimulationRecord, error) {
 
 	return model.SimulationRecord{
 		ID:       id,
+		Kind:     normalizeRecordKind(model.RecordKind(kind)),
 		Request:  req,
 		Response: resp,
 	}, nil
 }
 
-func (s *Service) SaveRecord(req model.SimulateRequest, resp model.SimulateResponse) error {
+func (s *Service) SaveRecord(kind model.RecordKind, req any, resp model.SimulateResponse) error {
 	id := strings.TrimSpace(resp.ID)
 	if err := validateRecordID(id); err != nil {
 		return err
 	}
+	kind = normalizeRecordKind(kind)
 
 	requestJSON, err := json.Marshal(req)
 	if err != nil {
@@ -96,17 +102,28 @@ func (s *Service) SaveRecord(req model.SimulateRequest, resp model.SimulateRespo
 	}
 
 	_, err = db.Exec(
-		`INSERT INTO simulation_records (id, request_json, response_json, created_at, updated_at)
-		 VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`INSERT INTO simulation_records (id, kind, request_json, response_json, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT(id) DO UPDATE SET
+		   kind = excluded.kind,
 		   request_json = excluded.request_json,
 		   response_json = excluded.response_json,
 		   updated_at = CURRENT_TIMESTAMP`,
 		id,
+		string(kind),
 		requestJSON,
 		responseJSON,
 	)
 	return err
+}
+
+func normalizeRecordKind(kind model.RecordKind) model.RecordKind {
+	switch kind {
+	case model.RecordKindSimulation, model.RecordKindTx:
+		return kind
+	default:
+		return model.RecordKindSimulation
+	}
 }
 
 func openRecordDatabase(workDir string, create bool) (*sql.DB, error) {
@@ -142,13 +159,48 @@ func closeRecordDatabase(db *sql.DB) {
 }
 
 func ensureRecordSchema(db *sql.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS simulation_records (
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS simulation_records (
 		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL DEFAULT 'simulation',
 		request_json BLOB NOT NULL,
 		response_json BLOB NOT NULL,
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`)
+	)`); err != nil {
+		return err
+	}
+	return ensureRecordKindColumn(db)
+}
+
+func ensureRecordKindColumn(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(simulation_records)")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Warn("close record schema rows", "error", err)
+		}
+	}()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if name == "kind" {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec("ALTER TABLE simulation_records ADD COLUMN kind TEXT NOT NULL DEFAULT 'simulation'")
 	return err
 }
 

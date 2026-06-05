@@ -85,6 +85,61 @@ func TestParseOutputForgeJSONTrace(t *testing.T) {
 	}
 }
 
+func TestParseOutputCastRunJSONTrace(t *testing.T) {
+	output := `{
+  "returns": {},
+  "success": true,
+  "raw_logs": [],
+  "traces": [
+    [
+      "Execution",
+      {
+        "arena": [
+          {
+            "parent": null,
+            "children": [1],
+            "idx": 0,
+            "trace": {
+              "address": "0x0000000000000000000000000000000000000001",
+              "kind": "CALL"
+            },
+            "logs": [],
+            "ordering": [{"Call": 0}]
+          },
+          {
+            "parent": 0,
+            "children": [],
+            "idx": 1,
+            "trace": {
+              "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+              "kind": "CALL"
+            },
+            "logs": []
+          }
+        ]
+      }
+    ]
+  ],
+  "gas_used": 12345,
+  "labeled_addresses": {},
+  "returned": "0x",
+  "address": null
+}`
+
+	parsed, err := ParseOutput(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parsed.Trace, `"traces"`) {
+		t.Fatalf("trace should include execution traces, got:\n%s", parsed.Trace)
+	}
+	for _, notWant := range []string{`"test_results"`, `"returns"`, `"gas_used"`} {
+		if strings.Contains(parsed.Trace, notWant) {
+			t.Fatalf("trace should only return the execution trace, found %s in:\n%s", notWant, parsed.Trace)
+		}
+	}
+}
+
 func TestParseOutputReturnsOnlyExecutionTrace(t *testing.T) {
 	output := `{
   "test/SimulateTxRunner.t.sol:SimulateTxRunnerTest": {

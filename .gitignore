@@ -16,7 +16,6 @@ docs/
 
 # Local config and generated request artifacts
 config.json
-config.yaml
 config.yml
 backend/.runs/
 
