@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -177,7 +178,7 @@ func (s *Service) Simulate(parent context.Context, req model.SimulateRequest) (m
 		return resp, status
 	}
 
-	rpcURL, err := s.validateRequest(&req)
+	rpcURL, err := s.validateRequest(parent, &req)
 	if err != nil {
 		resp.Error = err.Error()
 		return finish(http.StatusBadRequest)
@@ -482,7 +483,7 @@ func (s *Service) ReplayTx(parent context.Context, req model.TxRequest) (model.S
 	return finish(http.StatusOK)
 }
 
-func (s *Service) validateRequest(req *model.SimulateRequest) (string, error) {
+func (s *Service) validateRequest(ctx context.Context, req *model.SimulateRequest) (string, error) {
 	req.Chain = strings.TrimSpace(req.Chain)
 	projectPath, err := s.normalizeProjectPath(req.ProjectPath)
 	if err != nil {
@@ -499,6 +500,14 @@ func (s *Service) validateRequest(req *model.SimulateRequest) (string, error) {
 	}
 	if strings.TrimSpace(rpcURL) == "" {
 		return "", fmt.Errorf("rpc url for chain %q is empty after environment expansion", req.Chain)
+	}
+
+	if req.BlockNumber == "" {
+		latest, err := fetchLatestBlockNumber(ctx, rpcURL)
+		if err != nil {
+			return "", fmt.Errorf("fetch latest block number: %w", err)
+		}
+		req.BlockNumber = model.Uint256(latest)
 	}
 
 	normalizedData, err := solidity.NormalizeBytes("data", req.Data)
@@ -881,4 +890,39 @@ func (s *Service) acquireWorker(ctx context.Context) (*simulationWorker, func(),
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
+}
+
+func fetchLatestBlockNumber(ctx context.Context, rpcURL string) (string, error) {
+	body := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var rpcResp struct {
+		Result string `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return "", err
+	}
+	if rpcResp.Error != nil {
+		return "", fmt.Errorf("rpc error: %s", rpcResp.Error.Message)
+	}
+
+	hex := strings.TrimPrefix(rpcResp.Result, "0x")
+	n, ok := new(big.Int).SetString(hex, 16)
+	if !ok {
+		return "", fmt.Errorf("invalid block number %q", rpcResp.Result)
+	}
+	return n.String(), nil
 }

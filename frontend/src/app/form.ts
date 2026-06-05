@@ -27,9 +27,11 @@ export type FormState = {
   txHash: string;
   blockNumber: string;
   projectPath: string;
+  useLatestBlock: boolean;
   sender: string;
   target: string;
   data: string;
+  value: string;
   labelOverrides: LabelOverride[];
   erc20BalanceOverrides: ERC20BalanceOverride[];
   erc20ApprovalOverrides: ERC20ApprovalOverride[];
@@ -57,9 +59,11 @@ export const defaults: FormState = {
   txHash: "",
   blockNumber: "",
   projectPath: "",
+  useLatestBlock: false,
   sender: "",
   target: "",
   data: "",
+  value: "",
   labelOverrides: [],
   erc20BalanceOverrides: [],
   erc20ApprovalOverrides: [],
@@ -97,10 +101,12 @@ export function formFromSimulationRequest(request: SimulateRequest, apiUrl: stri
     requestKind: "simulation",
     chain: request.chain,
     blockNumber: request.blockNumber,
+    useLatestBlock: !request.blockNumber,
     projectPath: request.projectPath ?? "",
     sender: request.sender,
     target: request.target,
     data: request.data,
+    value: request.value ?? "",
     labelOverrides: request.labelOverrides ?? [],
     erc20BalanceOverrides: request.erc20BalanceOverrides ?? [],
     erc20ApprovalOverrides: request.erc20ApprovalOverrides ?? [],
@@ -140,9 +146,6 @@ export function buildRunRequest(form: FormState): BuiltRunRequest {
 }
 
 export function buildSimulationRequest(form: FormState): SimulateRequest {
-  if (!form.blockNumber.trim()) {
-    throw new Error("blockNumber is required");
-  }
   if (!form.sender.trim()) {
     throw new Error("sender is required");
   }
@@ -173,7 +176,7 @@ export function buildSimulationRequest(form: FormState): SimulateRequest {
 
   const request: SimulateRequest = {
     chain: form.chain,
-    blockNumber: form.blockNumber.trim(),
+    blockNumber: form.useLatestBlock ? "" : form.blockNumber.trim(),
     sender: form.sender.trim(),
     target: form.target.trim(),
     data: form.data.trim() || "0x",
@@ -186,6 +189,7 @@ export function buildSimulationRequest(form: FormState): SimulateRequest {
   };
 
   optionalString(request, "projectPath", form.projectPath);
+  optionalString(request, "value", form.value);
   if (form.stateSource.trim()) {
     const stateOverride: StateOverride = { source: form.stateSource };
     optionalString(stateOverride, "contractName", form.stateContractName);

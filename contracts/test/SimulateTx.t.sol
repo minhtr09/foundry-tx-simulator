@@ -62,7 +62,8 @@ contract SimulateTxTest is SimulateTxRunnerTest {
         stateOverrideBytecode: "",
         sender: spender,
         target: WETH,
-        data: abi.encodeCall(IERC20.transferFrom, (owner, recipient, WETH_AMOUNT))
+        data: abi.encodeCall(IERC20.transferFrom, (owner, recipient, WETH_AMOUNT)),
+        value: 0
       })
     );
 
@@ -98,7 +99,8 @@ contract SimulateTxTest is SimulateTxRunnerTest {
         stateOverrideBytecode: type(WETHStateOverride).creationCode,
         sender: spender,
         target: WETH,
-        data: abi.encodeCall(IERC20.transferFrom, (owner, recipient, WETH_AMOUNT))
+        data: abi.encodeCall(IERC20.transferFrom, (owner, recipient, WETH_AMOUNT)),
+        value: 0
       })
     );
 
@@ -135,7 +137,8 @@ contract SimulateTxTest is SimulateTxRunnerTest {
         stateOverrideBytecode: "",
         sender: spender,
         target: BAYC,
-        data: abi.encodeCall(IERC721.transferFrom, (owner, recipient, BAYC_TOKEN_ID))
+        data: abi.encodeCall(IERC721.transferFrom, (owner, recipient, BAYC_TOKEN_ID)),
+        value: 0
       })
     );
 

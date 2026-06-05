@@ -295,14 +295,25 @@ export default function RequestForm(props: RequestFormProps) {
               <input value={form.txHash} placeholder="0x..." onChange={(event) => onUpdate("txHash", event.target.value)} />
             </label>
           ) : (
-            <label>
-              Block
+            <div className="field-block">
+              <span className="field-label-row">
+                Block
+                <label className="latest-block-toggle">
+                  <input
+                    type="checkbox"
+                    checked={form.useLatestBlock}
+                    onChange={(event) => onUpdate("useLatestBlock", event.target.checked)}
+                  />
+                  latest
+                </label>
+              </span>
               <input
-                value={form.blockNumber}
-                placeholder="23000000"
+                value={form.useLatestBlock ? "" : form.blockNumber}
+                placeholder={form.useLatestBlock ? "latest" : "23000000"}
+                disabled={form.useLatestBlock}
                 onChange={(event) => onUpdate("blockNumber", event.target.value)}
               />
-            </label>
+            </div>
           )}
         </div>
 
@@ -334,6 +345,11 @@ export default function RequestForm(props: RequestFormProps) {
             <label>
               Target
               <input value={form.target} placeholder="0x..." onChange={(event) => onUpdate("target", event.target.value)} />
+            </label>
+
+            <label>
+              Value (wei)
+              <input value={form.value} placeholder="0" onChange={(event) => onUpdate("value", event.target.value)} />
             </label>
 
             <label>

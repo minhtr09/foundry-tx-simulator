@@ -9,7 +9,7 @@ import (
 
 type SimulateRequest struct {
 	Chain                   string                   `json:"chain" validate:"required"`
-	BlockNumber             Uint256                  `json:"blockNumber" validate:"required"`
+	BlockNumber             Uint256                  `json:"blockNumber"`
 	ProjectPath             string                   `json:"projectPath,omitempty"`
 	LabelOverrides          []LabelOverride          `json:"labelOverrides,omitempty" validate:"dive"`
 	ERC20BalanceOverrides   []ERC20BalanceOverride   `json:"erc20BalanceOverrides,omitempty" validate:"dive"`
@@ -22,6 +22,7 @@ type SimulateRequest struct {
 	Sender                  string                   `json:"sender" validate:"required,eth_address"`
 	Target                  string                   `json:"target" validate:"required,eth_address"`
 	Data                    string                   `json:"data" validate:"hex_bytes"`
+	Value                   Uint256                  `json:"value,omitempty"`
 }
 
 type TxRequest struct {

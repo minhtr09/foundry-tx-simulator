@@ -67,7 +67,7 @@ export const errorResponseSchema = z.object({
 
 export const simulateRequestSchema = z.object({
   chain: z.string().min(1),
-  blockNumber: uint256Schema,
+  blockNumber: z.union([uint256Schema, z.literal("")]),
   projectPath: z.string().optional(),
   labelOverrides: z.array(labelOverrideSchema).optional(),
   erc20BalanceOverrides: z.array(erc20BalanceOverrideSchema).optional(),
@@ -78,7 +78,8 @@ export const simulateRequestSchema = z.object({
   decodeInternal: z.boolean().default(false),
   sender: addressSchema,
   target: addressSchema,
-  data: bytesSchema
+  data: bytesSchema,
+  value: uint256Schema.optional()
 });
 
 export const txRequestSchema = z.object({
