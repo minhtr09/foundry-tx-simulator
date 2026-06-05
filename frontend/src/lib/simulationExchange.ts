@@ -1,9 +1,10 @@
 import { simulationRecordSchema } from "../api/schemas";
-import type { SimulateRequest, SimulateResponse, SimulationRecord } from "../api/types";
+import type { RequestKind, RunRequest, SimulateResponse, SimulationRecord } from "../api/types";
 
-export function buildSimulationExport(request: SimulateRequest, response: SimulateResponse): SimulationRecord {
+export function buildSimulationExport(kind: RequestKind, request: RunRequest, response: SimulateResponse): SimulationRecord {
   return {
     id: response.id,
+    kind,
     request,
     response
   };

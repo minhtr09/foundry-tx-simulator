@@ -1,12 +1,13 @@
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchChainConfig, fetchHealth, fetchProjects, fetchSimulationRecord, runSimulation } from "../api/client";
+import { fetchChainConfig, fetchHealth, fetchProjects, fetchSimulationRecord, runRequest } from "../api/client";
 import OutputPanel from "../features/output/OutputPanel";
 import RequestForm from "../features/request/RequestForm";
 import { explorerForChain } from "../lib/explorer";
 import {
-  buildRequest,
-  formFromRequest,
+  buildRunRequest,
+  formFromRecord,
+  type BuiltRunRequest,
   type ExpandMode,
   type FormState,
   type HealthStatus,
@@ -86,8 +87,8 @@ export default function App() {
   }, [response]);
   const traceData = useMemo(() => traceDataFromResponse(response), [response]);
   const addressLabels = useMemo(
-    () => buildAddressLabels(form.labelOverrides, form.sender, response, traceData.labels),
-    [form.labelOverrides, form.sender, response, traceData.labels]
+    () => buildAddressLabels(form.requestKind === "simulation" ? form.labelOverrides : [], form.requestKind === "simulation" ? form.sender : "", response, traceData.labels),
+    [form.labelOverrides, form.requestKind, form.sender, response, traceData.labels]
   );
   const explorerBaseUrl = useMemo(() => explorerForChain(explorerUrls, form.chain), [explorerUrls, form.chain]);
 
@@ -96,21 +97,23 @@ export default function App() {
   };
 
   const simulation = useMutation({
-    mutationFn: ({ apiUrl, request, signal }: { apiUrl: string; request: SimulateRequest; signal: AbortSignal }) =>
-      runSimulation(apiUrl, request, signal),
+    mutationFn: ({ apiUrl, run, signal }: { apiUrl: string; run: BuiltRunRequest; signal: AbortSignal }) =>
+      runRequest(apiUrl, run, signal),
     onSuccess: (result, variables) => {
       setResponse(result.response);
-      setSimulationRecord(buildSimulationExport(variables.request, result.response));
+      setSimulationRecord(buildSimulationExport(variables.run.kind, variables.run.request, result.response));
       setRequestLookupId(result.requestId);
       setOutputView("trace");
       setExpandMode("depth");
       setOptimisticProjects([]);
       syncRequestIdToURL(result.requestId);
-      void queryClient.invalidateQueries({ queryKey: ["projects", variables.apiUrl] });
+      if (variables.run.kind === "simulation") {
+        void queryClient.invalidateQueries({ queryKey: ["projects", variables.apiUrl] });
+      }
     },
     onError: (err) => {
       if (isAbortError(err)) {
-        setError("Simulation aborted");
+        setError("Run aborted");
         return;
       }
       setError(err instanceof Error ? err.message : String(err));
@@ -144,7 +147,7 @@ export default function App() {
 
       fetchSimulationRecord(apiUrl, trimmedRequestId, controller.signal)
         .then((record) => {
-          setForm(formFromRequest(record.request, apiUrl));
+          setForm(formFromRecord(record, apiUrl));
           setResponse(record.response);
           setSimulationRecord(record);
           setRequestLookupId(record.id);
@@ -152,8 +155,9 @@ export default function App() {
           setExpandMode("depth");
           setError("");
           syncRequestIdToURL(record.id);
-          if (record.request.projectPath) {
-            setOptimisticProjects((current) => mergeProjects([record.request.projectPath ?? ""], current).slice(0, 20));
+          const projectPath = record.kind === "simulation" ? (record.request as SimulateRequest).projectPath : "";
+          if (projectPath) {
+            setOptimisticProjects((current) => mergeProjects([projectPath], current).slice(0, 20));
           }
         })
         .catch((err) => {
@@ -192,9 +196,9 @@ export default function App() {
       return;
     }
     setError("");
-    let request: SimulateRequest;
+    let run: BuiltRunRequest;
     try {
-      request = buildRequest(form);
+      run = buildRunRequest(form);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
@@ -202,7 +206,7 @@ export default function App() {
 
     const controller = new AbortController();
     simulationAbortRef.current = controller;
-    simulation.mutate({ apiUrl: form.apiUrl, request, signal: controller.signal });
+    simulation.mutate({ apiUrl: form.apiUrl, run, signal: controller.signal });
   };
 
   const abortSimulation = () => {
@@ -264,14 +268,15 @@ export default function App() {
 
   const applySimulationImport = (text: string) => {
     const parsed = parseSimulationExportText(text);
-    setForm(formFromRequest(parsed.request, form.apiUrl));
+    setForm(formFromRecord(parsed, form.apiUrl));
     setResponse(parsed.response);
     setSimulationRecord(parsed);
     setRequestLookupId(parsed.id);
     setOutputView("trace");
     setExpandMode("depth");
-    if (parsed.request.projectPath) {
-      setOptimisticProjects((current) => mergeProjects([parsed.request.projectPath ?? ""], current).slice(0, 20));
+    const projectPath = parsed.kind === "simulation" ? (parsed.request as SimulateRequest).projectPath : "";
+    if (projectPath) {
+      setOptimisticProjects((current) => mergeProjects([projectPath], current).slice(0, 20));
     }
     setError("");
   };

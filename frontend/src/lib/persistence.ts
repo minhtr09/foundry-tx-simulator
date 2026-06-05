@@ -109,7 +109,7 @@ function defaultUIState(): PersistedUIState {
 }
 
 function validRequestTab(value: unknown): value is RequestTab {
-  return value === "overrides" || value === "state" || value === "compiler";
+  return value === "overrides" || value === "state" || value === "run";
 }
 
 function validOutputView(value: unknown): value is OutputView {

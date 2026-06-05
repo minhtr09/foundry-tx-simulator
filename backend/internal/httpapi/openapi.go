@@ -17,6 +17,7 @@ import (
 const (
 	addressPattern = `^0x[0-9a-fA-F]{40}$`
 	bytesPattern   = `^0x([0-9a-fA-F]{2})*$`
+	txHashPattern  = `^0x[0-9a-fA-F]{64}$`
 	uint256Pattern = `^(0x[0-9a-fA-F]+|[0-9]+)$`
 )
 
@@ -113,6 +114,7 @@ func registerOpenAPISchemas(schemas openapi3.Schemas) error {
 		{"BrowseProjectResponse", model.BrowseProjectResponse{}},
 		{"SimulationRecord", model.SimulationRecord{}},
 		{"SimulateRequest", model.SimulateRequest{}},
+		{"TxRequest", model.TxRequest{}},
 		{"LabelOverride", model.LabelOverride{}},
 		{"ERC20BalanceOverride", model.ERC20BalanceOverride{}},
 		{"ERC20ApprovalOverride", model.ERC20ApprovalOverride{}},
@@ -205,6 +207,10 @@ func openAPISchemaCustomizer(_ string, t reflect.Type, tag reflect.StructTag, sc
 		schema.Type = &openapi3.Types{"string"}
 		schema.Pattern = bytesPattern
 	}
+	if strings.Contains(validateTag, "tx_hash") {
+		schema.Type = &openapi3.Types{"string"}
+		schema.Pattern = txHashPattern
+	}
 	return nil
 }
 
@@ -218,6 +224,12 @@ func enrichOpenAPISchemas(schemas openapi3.Schemas) {
 	setPropertyExample(schemas, "SimulateRequest", "sender", "0x0000000000000000000000000000000000000001")
 	setPropertyExample(schemas, "SimulateRequest", "target", "0x0000000000000000000000000000000000000002")
 	setPropertyExample(schemas, "SimulateRequest", "data", "0x")
+	setPropertyExample(schemas, "TxRequest", "chain", "mainnet")
+	setPropertyExample(schemas, "TxRequest", "txHash", "0x0000000000000000000000000000000000000000000000000000000000000000")
+	setPropertyDescription(schemas, "TxRequest", "decodeInternal", "When true, passes --decode-internal to cast-kyber run. Defaults to false.")
+	setPropertyDefault(schemas, "TxRequest", "decodeInternal", false)
+	setPropertyDescription(schemas, "TxRequest", "quick", "When true, passes --quick to cast-kyber run. Defaults to false.")
+	setPropertyDefault(schemas, "TxRequest", "quick", false)
 
 	setPropertyDescription(schemas, "ChainsResponse", "explorerUrls", "Map of configured chain name to block explorer base URL.")
 	setPropertyDescription(schemas, "ProjectsResponse", "projects", "Most recently used Foundry project paths.")
@@ -279,25 +291,36 @@ func addOpenAPIOperations(spec *openapi3.T) {
 		withErrorResponse(http.StatusBadRequest, "ErrorResponse"),
 	))
 	spec.AddOperation("/requests/{id}", http.MethodGet, getOperation(
-		"Load a saved simulation request and response by request ID",
+		"Load a saved request and response by request ID",
 		"SimulationRecord",
-		withPathParameter("id", "Simulation request ID returned by /simulate"),
+		withPathParameter("id", "Request ID returned by /simulation or /tx"),
 		withErrorResponse(http.StatusBadRequest, "ErrorResponse"),
 		withErrorResponse(http.StatusNotFound, "ErrorResponse"),
 	))
 
-	op := postOperation(
+	simulationOp := postOperation(
 		"Run a forge-kyber test simulation and return the execution trace with fund-flow analysis",
 		"SimulateRequest",
 		"SimulateResponse",
 	)
 	for _, status := range []int{http.StatusBadRequest} {
-		op.Responses.Set(fmt.Sprintf("%d", status), jsonResponse("ErrorResponse", http.StatusText(status)))
+		simulationOp.Responses.Set(fmt.Sprintf("%d", status), jsonResponse("ErrorResponse", http.StatusText(status)))
 	}
-	for _, status := range []int{http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusGatewayTimeout} {
-		op.Responses.Set(fmt.Sprintf("%d", status), jsonResponse("SimulateResponse", http.StatusText(status)))
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusBadGateway, http.StatusInternalServerError, http.StatusGatewayTimeout} {
+		simulationOp.Responses.Set(fmt.Sprintf("%d", status), jsonResponse("SimulateResponse", http.StatusText(status)))
 	}
-	spec.AddOperation("/simulate", http.MethodPost, op)
+	spec.AddOperation("/simulation", http.MethodPost, simulationOp)
+
+	txOp := postOperation(
+		"Replay a published transaction with cast-kyber run and return the execution trace with fund-flow analysis",
+		"TxRequest",
+		"SimulateResponse",
+	)
+	txOp.Responses.Set("400", jsonResponse("ErrorResponse", http.StatusText(http.StatusBadRequest)))
+	for _, status := range []int{http.StatusBadGateway, http.StatusGatewayTimeout, http.StatusInternalServerError} {
+		txOp.Responses.Set(fmt.Sprintf("%d", status), jsonResponse("SimulateResponse", http.StatusText(status)))
+	}
+	spec.AddOperation("/tx", http.MethodPost, txOp)
 }
 
 type operationOption func(*openapi3.Operation)

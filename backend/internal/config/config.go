@@ -23,6 +23,7 @@ type Config struct {
 	TimeoutSeconds   int               `mapstructure:"timeout_seconds"`
 	MaxConcurrent    int               `mapstructure:"max_concurrent_runs"`
 	ForgeBin         string            `mapstructure:"forge_bin"`
+	CastBin          string            `mapstructure:"cast_bin"`
 	AnvilBin         string            `mapstructure:"anvil_bin"`
 	AnvilHost        string            `mapstructure:"anvil_host"`
 	AnvilPortStart   int               `mapstructure:"anvil_port_start"`
@@ -40,16 +41,12 @@ const (
 
 var configCandidates = []string{
 	"config.yml",
-	"config.yaml",
 	"config.example.yml",
-	"config.example.yaml",
 }
 
 var parentConfigCandidates = []string{
 	"../config.yml",
-	"../config.yaml",
 	"../config.example.yml",
-	"../config.example.yaml",
 }
 
 func Load() (Config, string, error) {
@@ -115,6 +112,7 @@ func LoadFile(path string) (Config, string, error) {
 		return Config{}, "", errors.New("frontend_port must be positive")
 	}
 	cfg.ForgeBin = strings.TrimSpace(cfg.ForgeBin)
+	cfg.CastBin = strings.TrimSpace(cfg.CastBin)
 	cfg.AnvilBin = strings.TrimSpace(cfg.AnvilBin)
 	cfg.AnvilHost = strings.TrimSpace(cfg.AnvilHost)
 	cfg.EtherscanAPIKey = strings.TrimSpace(os.ExpandEnv(cfg.EtherscanAPIKey))
@@ -183,6 +181,7 @@ func newConfigViper(path string) *viper.Viper {
 	v.SetDefault("timeout_seconds", 300)
 	v.SetDefault("max_concurrent_runs", 1)
 	v.SetDefault("forge_bin", "forge-kyber")
+	v.SetDefault("cast_bin", "cast-kyber")
 	v.SetDefault("anvil_bin", "anvil-kyber")
 	v.SetDefault("anvil_host", "127.0.0.1")
 	v.SetDefault("anvil_port_start", 18545)

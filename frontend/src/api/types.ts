@@ -8,10 +8,13 @@ export type {
   ERC721ApprovalOverride,
   LabelOverride,
   ProjectsResponse,
+  RequestKind,
+  RunRequest,
   SimulateRequest,
   SimulateResponse,
   SimulationRecord,
   StateOverride,
   TokenBalanceChange,
+  TxRequest,
   UserUSDChange
 } from "./schemas";

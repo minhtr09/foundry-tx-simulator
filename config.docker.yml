@@ -1,12 +1,13 @@
-listen_addr: "127.0.0.1:8080"
-frontend_port: 5173
-repo_root: "."
-project_roots: []
-work_dir: "backend/.runs"
-project_cache_path: "backend/.runs/projects.json"
+listen_addr: "0.0.0.0:8080"
+repo_root: "/app"
+project_roots:
+  - "${TXSIM_PROJECTS_CONTAINER_PATH}"
+work_dir: "/data/runs"
+project_cache_path: "/data/runs/projects.json"
 timeout_seconds: 300
 max_concurrent_runs: 1
 forge_bin: "forge-kyber"
+cast_bin: "cast-kyber"
 anvil_bin: "anvil-kyber"
 anvil_host: "127.0.0.1"
 anvil_port_start: 18545

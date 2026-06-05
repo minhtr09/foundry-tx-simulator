@@ -18,7 +18,7 @@ import {
 test("shows validation errors for malformed simulation inputs", async ({ page }) => {
   await routeBaseEndpoints(page);
   let simulateCalls = 0;
-  await page.route(`${apiURL}/simulate`, async (route) => {
+  await page.route(`${apiURL}/simulation`, async (route) => {
     simulateCalls += 1;
     await route.fulfill({
       status: 500,
@@ -45,7 +45,7 @@ test("shows validation errors for malformed simulation inputs", async ({ page })
 
 test("changes the running action to abort and cancels the active request", async ({ page }) => {
   await routeBaseEndpoints(page);
-  await page.route(`${apiURL}/simulate`, async (route) => {
+  await page.route(`${apiURL}/simulation`, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 750));
     try {
       await route.fulfill({
@@ -73,14 +73,58 @@ test("changes the running action to abort and cancels the active request", async
   await page.getByRole("button", { name: "Run Simulation" }).click();
   await expect(page.getByRole("button", { name: "Abort" })).toBeVisible();
   await page.getByRole("button", { name: "Abort" }).click();
-  await expect(page.getByText("Simulation aborted")).toBeVisible();
+  await expect(page.getByText("Run aborted")).toBeVisible();
   await expect(page.getByRole("button", { name: "Run Simulation" })).toBeVisible();
+});
+
+test("replays a transaction through the tx endpoint", async ({ page }) => {
+  await routeBaseEndpoints(page);
+  let simulationCalls = 0;
+  await page.route(`${apiURL}/simulation`, async (route) => {
+    simulationCalls += 1;
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "simulation should not be called" })
+    });
+  });
+  await page.route(`${apiURL}/tx`, async (route) => {
+    const request = route.request().postDataJSON() as {
+      chain?: string;
+      txHash?: string;
+      decodeInternal?: boolean;
+      quick?: boolean;
+    };
+    expect(request).toMatchObject({
+      chain: "mainnet",
+      txHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      decodeInternal: false,
+      quick: true
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ...simulateResponse(), id: "tx-run" })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tx", exact: true }).click();
+  await expect(page.getByLabel("Tx Hash")).toBeVisible();
+  await expect(page.getByLabel("Block")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Run Options" })).toBeVisible();
+  await page.getByLabel("Tx Hash").fill("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  await page.getByLabel("quick").check();
+  await page.getByRole("button", { name: "Replay Tx" }).click();
+
+  await expect(page.getByText("success | 12ms | exit 0 | tx-run")).toBeVisible();
+  expect(simulationCalls).toBe(0);
 });
 
 test("exports and imports simulation input and output", async ({ page }, testInfo) => {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:5173" });
   await routeBaseEndpoints(page);
-  await page.route(`${apiURL}/simulate`, async (route) => {
+  await page.route(`${apiURL}/simulation`, async (route) => {
     const request = route.request().postDataJSON() as {
       blockNumber?: string;
       sender?: string;
@@ -222,7 +266,7 @@ test("exports and imports simulation input and output", async ({ page }, testInf
 
 test("uses configured explorer links and renders only the last main call subtree", async ({ page }) => {
   await routeBaseEndpoints(page);
-  await page.route(`${apiURL}/simulate`, async (route) => {
+  await page.route(`${apiURL}/simulation`, async (route) => {
     const request = route.request().postDataJSON() as { etherscanApiKey?: string; labelOverrides?: Array<{ account: string; label: string }> };
     expect(request.labelOverrides).toContainEqual({ account: spender, label: "Sender" });
     expect(request.etherscanApiKey).toBeUndefined();
@@ -264,7 +308,7 @@ test("uses configured explorer links and renders only the last main call subtree
   await addLabel(page, owner, "WETHOwner");
   await addLabel(page, recipient, "WETHRecipient");
   await addLabel(page, searchOnlyAccount, "SearchOnlyAlias");
-  await page.getByRole("button", { name: "Compiler" }).click();
+  await page.getByRole("button", { name: "Run Options" }).click();
   await expect(page.getByLabel("Solc")).toBeVisible();
 
   await page.reload();
@@ -277,7 +321,7 @@ test("uses configured explorer links and renders only the last main call subtree
   await expect(page.getByLabel("Sender")).toHaveValue(spender);
   await expect(page.getByLabel("Target")).toHaveValue(token);
   await expect(page.getByLabel("Calldata")).toHaveValue("0x23b872dd");
-  await page.getByRole("button", { name: "Compiler" }).click();
+  await page.getByRole("button", { name: "Run Options" }).click();
   await expect(page.getByLabel("Solc")).toBeVisible();
 
   await page.getByRole("button", { name: "Run Simulation" }).click();

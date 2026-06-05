@@ -1,4 +1,4 @@
-import { simulateRequestSchema } from "../api/schemas";
+import { simulateRequestSchema, txRequestSchema } from "../api/schemas";
 import { isAddress } from "../lib/labels";
 import type {
   CompilerConfig,
@@ -6,19 +6,25 @@ import type {
   ERC20BalanceOverride,
   ERC721ApprovalOverride,
   LabelOverride,
+  RequestKind,
   SimulateRequest,
-  StateOverride
+  SimulationRecord,
+  StateOverride,
+  TxRequest
 } from "../api/types";
 
-export type RequestTab = "overrides" | "state" | "compiler";
+export type RequestTab = "overrides" | "state" | "run";
 export type OutputView = "trace" | "flow" | "balances" | "json";
 export type ExpandMode = "depth" | "expand" | "collapse";
 export type HealthStatus = "offline" | "online" | "error";
 export type ThemeMode = "light" | "dark";
+export type BuiltRunRequest = { kind: "simulation"; request: SimulateRequest } | { kind: "tx"; request: TxRequest };
 
 export type FormState = {
   apiUrl: string;
+  requestKind: RequestKind;
   chain: string;
+  txHash: string;
   blockNumber: string;
   projectPath: string;
   sender: string;
@@ -39,13 +45,16 @@ export type FormState = {
   offline: boolean;
   noMetadata: boolean;
   decodeInternal: boolean;
+  quick: boolean;
 };
 
 const defaultApiUrl = window.__TXSIM_CONFIG__?.apiUrl ?? "http://127.0.0.1:8080";
 
 export const defaults: FormState = {
   apiUrl: defaultApiUrl,
+  requestKind: "simulation",
   chain: "mainnet",
+  txHash: "",
   blockNumber: "",
   projectPath: "",
   sender: "",
@@ -65,18 +74,27 @@ export const defaults: FormState = {
   optimize: true,
   offline: false,
   noMetadata: false,
-  decodeInternal: false
+  decodeInternal: false,
+  quick: false
 };
 
 export type UpdateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => void;
 
-export function formFromRequest(request: SimulateRequest, apiUrl: string): FormState {
+export function formFromRecord(record: SimulationRecord, apiUrl: string): FormState {
+  if (record.kind === "tx") {
+    return formFromTxRequest(record.request as TxRequest, apiUrl);
+  }
+  return formFromSimulationRequest(record.request as SimulateRequest, apiUrl);
+}
+
+export function formFromSimulationRequest(request: SimulateRequest, apiUrl: string): FormState {
   const compiler = request.compiler ?? {};
   const stateSource = request.stateOverride?.source ?? "";
   const stateContractName = request.stateOverride?.contractName ?? "";
   return {
     ...defaults,
     apiUrl,
+    requestKind: "simulation",
     chain: request.chain,
     blockNumber: request.blockNumber,
     projectPath: request.projectPath ?? "",
@@ -97,11 +115,31 @@ export function formFromRequest(request: SimulateRequest, apiUrl: string): FormS
     optimize: compiler.optimize ?? defaults.optimize,
     offline: compiler.offline ?? defaults.offline,
     noMetadata: compiler.noMetadata ?? defaults.noMetadata,
-    decodeInternal: request.decodeInternal ?? defaults.decodeInternal
+    decodeInternal: request.decodeInternal ?? defaults.decodeInternal,
+    quick: defaults.quick
   };
 }
 
-export function buildRequest(form: FormState): SimulateRequest {
+export function formFromTxRequest(request: TxRequest, apiUrl: string): FormState {
+  return {
+    ...defaults,
+    apiUrl,
+    requestKind: "tx",
+    chain: request.chain,
+    txHash: request.txHash,
+    decodeInternal: request.decodeInternal ?? defaults.decodeInternal,
+    quick: request.quick ?? defaults.quick
+  };
+}
+
+export function buildRunRequest(form: FormState): BuiltRunRequest {
+  if (form.requestKind === "tx") {
+    return { kind: "tx", request: buildTxRequest(form) };
+  }
+  return { kind: "simulation", request: buildSimulationRequest(form) };
+}
+
+export function buildSimulationRequest(form: FormState): SimulateRequest {
   if (!form.blockNumber.trim()) {
     throw new Error("blockNumber is required");
   }
@@ -155,6 +193,23 @@ export function buildRequest(form: FormState): SimulateRequest {
   }
 
   const parsed = simulateRequestSchema.safeParse(request);
+  if (!parsed.success) {
+    throw new Error(`request validation failed: ${formatSchemaError(parsed.error)}`);
+  }
+  return parsed.data;
+}
+
+export function buildTxRequest(form: FormState): TxRequest {
+  if (!form.txHash.trim()) {
+    throw new Error("txHash is required");
+  }
+  const request: TxRequest = {
+    chain: form.chain,
+    txHash: form.txHash.trim(),
+    decodeInternal: form.decodeInternal,
+    quick: form.quick
+  };
+  const parsed = txRequestSchema.safeParse(request);
   if (!parsed.success) {
     throw new Error(`request validation failed: ${formatSchemaError(parsed.error)}`);
   }

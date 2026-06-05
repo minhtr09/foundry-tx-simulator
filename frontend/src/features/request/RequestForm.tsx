@@ -67,6 +67,7 @@ export default function RequestForm(props: RequestFormProps) {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const isRequestLookupDisabled = isRunning || isOpeningRequest || !requestLookupId.trim();
   const isImportExportDisabled = isRunning || isOpeningRequest;
+  const isTxRequest = form.requestKind === "tx";
 
   const handleImportChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     const file = event.currentTarget.files?.[0];
@@ -118,6 +119,11 @@ export default function RequestForm(props: RequestFormProps) {
           API URL
           <input value={form.apiUrl} onChange={(event) => onUpdate("apiUrl", event.target.value)} />
         </label>
+
+        <div className="mode-toggle" role="group" aria-label="Request type">
+          <ModeButton label="Simulation" value="simulation" active={form.requestKind} disabled={isRunning} onClick={(value) => onUpdate("requestKind", value)} />
+          <ModeButton label="Tx" value="tx" active={form.requestKind} disabled={isRunning} onClick={(value) => onUpdate("requestKind", value)} />
+        </div>
 
         <div className="field-block">
           <label htmlFor="request-id">Request ID</label>
@@ -283,64 +289,76 @@ export default function RequestForm(props: RequestFormProps) {
               ))}
             </select>
           </label>
-          <label>
-            Block
-            <input
-              value={form.blockNumber}
-              placeholder="23000000"
-              onChange={(event) => onUpdate("blockNumber", event.target.value)}
-            />
-          </label>
+          {isTxRequest ? (
+            <label>
+              Tx Hash
+              <input value={form.txHash} placeholder="0x..." onChange={(event) => onUpdate("txHash", event.target.value)} />
+            </label>
+          ) : (
+            <label>
+              Block
+              <input
+                value={form.blockNumber}
+                placeholder="23000000"
+                onChange={(event) => onUpdate("blockNumber", event.target.value)}
+              />
+            </label>
+          )}
         </div>
 
-        <div className="field-block">
-          <label htmlFor="foundry-project">Foundry Project</label>
-          <span className="browse-field">
-            <input
-              className="project-path-input"
-              id="foundry-project"
-              value={form.projectPath}
-              placeholder="~/foundry-project"
-              onChange={(event) => onUpdate("projectPath", event.target.value)}
-            />
-            <ProjectHistoryDropdown projects={projectSuggestions} onSelect={(path) => onUpdate("projectPath", path)} />
-            <button className="browse-button" type="button" disabled={isBrowsingProject} onClick={handleBrowseProject}>
-              {isBrowsingProject ? "Choosing..." : "Browse"}
-            </button>
-          </span>
-          {browseError && <span className="field-error">{browseError}</span>}
-        </div>
+        {!isTxRequest && (
+          <>
+            <div className="field-block">
+              <label htmlFor="foundry-project">Foundry Project</label>
+              <span className="browse-field">
+                <input
+                  className="project-path-input"
+                  id="foundry-project"
+                  value={form.projectPath}
+                  placeholder="~/foundry-project"
+                  onChange={(event) => onUpdate("projectPath", event.target.value)}
+                />
+                <ProjectHistoryDropdown projects={projectSuggestions} onSelect={(path) => onUpdate("projectPath", path)} />
+                <button className="browse-button" type="button" disabled={isBrowsingProject} onClick={handleBrowseProject}>
+                  {isBrowsingProject ? "Choosing..." : "Browse"}
+                </button>
+              </span>
+              {browseError && <span className="field-error">{browseError}</span>}
+            </div>
 
-        <label>
-          Sender
-          <input value={form.sender} placeholder="0x..." onChange={(event) => onUpdate("sender", event.target.value)} />
-        </label>
+            <label>
+              Sender
+              <input value={form.sender} placeholder="0x..." onChange={(event) => onUpdate("sender", event.target.value)} />
+            </label>
 
-        <label>
-          Target
-          <input value={form.target} placeholder="0x..." onChange={(event) => onUpdate("target", event.target.value)} />
-        </label>
+            <label>
+              Target
+              <input value={form.target} placeholder="0x..." onChange={(event) => onUpdate("target", event.target.value)} />
+            </label>
 
-        <label>
-          Calldata
-          <textarea
-            value={form.data}
-            rows={3}
-            spellCheck={false}
-            placeholder="0x"
-            onChange={(event) => onUpdate("data", event.target.value)}
-          />
-        </label>
+            <label>
+              Calldata
+              <textarea
+                value={form.data}
+                rows={3}
+                spellCheck={false}
+                placeholder="0x"
+                onChange={(event) => onUpdate("data", event.target.value)}
+              />
+            </label>
+
+          </>
+        )}
 
         <div className="tabs" role="tablist" aria-label="Request sections">
-          <TabButton label="Override Options" value="overrides" active={requestTab} onClick={onRequestTabChange} />
-          <TabButton label="Override Contract" value="state" active={requestTab} onClick={onRequestTabChange} />
-          <TabButton label="Compiler" value="compiler" active={requestTab} onClick={onRequestTabChange} />
+          {!isTxRequest && <TabButton label="Override Options" value="overrides" active={requestTab} onClick={onRequestTabChange} />}
+          {!isTxRequest && <TabButton label="Override Contract" value="state" active={requestTab} onClick={onRequestTabChange} />}
+          <TabButton label="Run Options" value="run" active={isTxRequest ? "run" : requestTab} onClick={onRequestTabChange} />
         </div>
 
-        {requestTab === "overrides" && <ScriptOverridesTab form={form} onUpdate={onUpdate} />}
-        {requestTab === "state" && <StateTab form={form} onUpdate={onUpdate} />}
-        {requestTab === "compiler" && <CompilerTab form={form} onUpdate={onUpdate} />}
+        {!isTxRequest && requestTab === "overrides" && <ScriptOverridesTab form={form} onUpdate={onUpdate} />}
+        {!isTxRequest && requestTab === "state" && <StateTab form={form} onUpdate={onUpdate} />}
+        {(isTxRequest || requestTab === "run") && <RunOptionsTab form={form} isTxRequest={isTxRequest} onUpdate={onUpdate} />}
 
         {error && <div className="error-box">{error}</div>}
         <button
@@ -348,7 +366,7 @@ export default function RequestForm(props: RequestFormProps) {
           type={isRunning ? "button" : "submit"}
           onClick={isRunning ? onAbort : undefined}
         >
-          {isRunning ? "Abort" : "Run Simulation"}
+          {isRunning ? "Abort" : isTxRequest ? "Replay Tx" : "Run Simulation"}
         </button>
       </form>
     </section>
@@ -381,48 +399,57 @@ function StateTab(props: { form: FormState; onUpdate: UpdateForm }) {
   );
 }
 
-function CompilerTab(props: { form: FormState; onUpdate: UpdateForm }) {
-  const { form, onUpdate } = props;
+function RunOptionsTab(props: { form: FormState; isTxRequest: boolean; onUpdate: UpdateForm }) {
+  const { form, isTxRequest, onUpdate } = props;
   return (
     <section className="tab-panel active">
       <div className="toggle-grid">
-        <Checkbox label="viaIR" checked={form.viaIR} onChange={(value) => onUpdate("viaIR", value)} />
-        <Checkbox label="optimize" checked={form.optimize} onChange={(value) => onUpdate("optimize", value)} />
-        <Checkbox label="offline" checked={form.offline} onChange={(value) => onUpdate("offline", value)} />
-        <Checkbox label="no metadata" checked={form.noMetadata} onChange={(value) => onUpdate("noMetadata", value)} />
         <Checkbox label="decode internal" checked={form.decodeInternal} onChange={(value) => onUpdate("decodeInternal", value)} />
+        {isTxRequest && <Checkbox label="quick" checked={form.quick} onChange={(value) => onUpdate("quick", value)} />}
+        {!isTxRequest && (
+          <>
+            <Checkbox label="viaIR" checked={form.viaIR} onChange={(value) => onUpdate("viaIR", value)} />
+            <Checkbox label="optimize" checked={form.optimize} onChange={(value) => onUpdate("optimize", value)} />
+            <Checkbox label="offline" checked={form.offline} onChange={(value) => onUpdate("offline", value)} />
+            <Checkbox label="no metadata" checked={form.noMetadata} onChange={(value) => onUpdate("noMetadata", value)} />
+          </>
+        )}
       </div>
-      <div className="two-col">
-        <label>
-          Solc
-          <input value={form.compilerUse} onChange={(event) => onUpdate("compilerUse", event.target.value)} />
-        </label>
-        <label>
-          Optimizer Runs
-          <input
-            value={form.optimizerRuns}
-            inputMode="numeric"
-            placeholder="200"
-            onChange={(event) => onUpdate("optimizerRuns", event.target.value)}
-          />
-        </label>
-      </div>
-      <div className="two-col">
-        <label>
-          EVM Version
-          <input value={form.evmVersion} onChange={(event) => onUpdate("evmVersion", event.target.value)} />
-        </label>
-        <label>
-          Revert Strings
-          <select value={form.revertStrings} onChange={(event) => onUpdate("revertStrings", event.target.value)}>
-            <option value=""></option>
-            <option value="default">default</option>
-            <option value="strip">strip</option>
-            <option value="debug">debug</option>
-            <option value="verboseDebug">verboseDebug</option>
-          </select>
-        </label>
-      </div>
+      {!isTxRequest && (
+        <>
+          <div className="two-col">
+            <label>
+              Solc
+              <input value={form.compilerUse} onChange={(event) => onUpdate("compilerUse", event.target.value)} />
+            </label>
+            <label>
+              Optimizer Runs
+              <input
+                value={form.optimizerRuns}
+                inputMode="numeric"
+                placeholder="200"
+                onChange={(event) => onUpdate("optimizerRuns", event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="two-col">
+            <label>
+              EVM Version
+              <input value={form.evmVersion} onChange={(event) => onUpdate("evmVersion", event.target.value)} />
+            </label>
+            <label>
+              Revert Strings
+              <select value={form.revertStrings} onChange={(event) => onUpdate("revertStrings", event.target.value)}>
+                <option value=""></option>
+                <option value="default">default</option>
+                <option value="strip">strip</option>
+                <option value="debug">debug</option>
+                <option value="verboseDebug">verboseDebug</option>
+              </select>
+            </label>
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -430,6 +457,20 @@ function CompilerTab(props: { form: FormState; onUpdate: UpdateForm }) {
 function TabButton(props: { label: string; value: RequestTab; active: RequestTab; onClick: (value: RequestTab) => void }) {
   return (
     <button type="button" className={`tab-button ${props.active === props.value ? "active" : ""}`} onClick={() => props.onClick(props.value)}>
+      {props.label}
+    </button>
+  );
+}
+
+function ModeButton(props: {
+  label: string;
+  value: FormState["requestKind"];
+  active: FormState["requestKind"];
+  disabled: boolean;
+  onClick: (value: FormState["requestKind"]) => void;
+}) {
+  return (
+    <button type="button" className={`mode-button ${props.active === props.value ? "active" : ""}`} disabled={props.disabled} onClick={() => props.onClick(props.value)}>
       {props.label}
     </button>
   );

@@ -34,6 +34,8 @@ func main() {
 	slog.Info(
 		"simulation workers configured",
 		"max_concurrent_runs", cfg.MaxConcurrent,
+		"forge_bin", cfg.ForgeBin,
+		"cast_bin", cfg.CastBin,
 		"anvil_bin", cfg.AnvilBin,
 		"anvil_host", cfg.AnvilHost,
 		"anvil_port_start", cfg.AnvilPortStart,

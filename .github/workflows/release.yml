@@ -130,7 +130,7 @@ jobs:
             mkdir -p "${package_dir}"
             (cd backend && CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -trimpath -ldflags="-s -w" -o "../${package_dir}/txsim-server" ./cmd/server)
 
-            cp README.md config.example.yaml config.docker.yaml docker-compose.yml .env.example "${package_dir}/"
+            cp README.md config.example.yml config.docker.yml docker-compose.yml .env.example "${package_dir}/"
             mkdir -p "${package_dir}/backend"
             cp backend/README.md "${package_dir}/backend/README.md"
             tar \

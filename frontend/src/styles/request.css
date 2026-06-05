@@ -306,6 +306,7 @@ button:focus-visible {
   padding: 0;
 }
 
+.mode-toggle,
 .tabs,
 .view-tabs {
   display: flex;
@@ -317,6 +318,7 @@ button:focus-visible {
   background: var(--surface-alt);
 }
 
+.mode-button,
 .tab-button,
 .view-button {
   display: inline-grid;
@@ -334,6 +336,7 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+.mode-button,
 .tab-button {
   flex: 1 1 0;
 }
@@ -342,11 +345,17 @@ button:focus-visible {
   flex: 1 1 auto;
 }
 
+.mode-button.active,
 .tab-button.active,
 .view-button.active {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-soft);
+}
+
+.mode-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .tab-panel {

@@ -59,7 +59,8 @@ func (s *Server) Routes() http.Handler {
 	router.Get("/projects", s.handleProjects)
 	router.Get("/browse/project", s.handleBrowseProject)
 	router.Get("/requests/{id}", s.handleRequestRecord)
-	router.Post("/simulate", s.handleSimulate)
+	router.Post("/simulation", s.handleSimulation)
+	router.Post("/tx", s.handleTx)
 	router.Options("/*", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -136,7 +137,7 @@ func (s *Server) handleRequestRecord(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, record)
 }
 
-func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimulation(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err := r.Body.Close(); err != nil {
 			slog.Warn("close request body", "error", err)
@@ -157,6 +158,26 @@ func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	if status < http.StatusBadRequest {
 		s.rememberProjectPath(projectPath)
 	}
+	writeJSON(w, status, resp)
+}
+
+func (s *Server) handleTx(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if err := r.Body.Close(); err != nil {
+			slog.Warn("close request body", "error", err)
+		}
+	}()
+
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
+	decoder.DisallowUnknownFields()
+
+	var req model.TxRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, model.ErrorResponse{Error: "invalid JSON body: " + err.Error()})
+		return
+	}
+
+	resp, status := s.simulator.ReplayTx(r.Context(), req)
 	writeJSON(w, status, resp)
 }
 

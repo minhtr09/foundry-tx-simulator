@@ -10,7 +10,7 @@ services:
       - path: .env
         required: false
     environment:
-      TXSIM_CONFIG: /app/config.docker.yaml
+      TXSIM_CONFIG: /app/config.docker.yml
       TXSIM_PROJECTS_CONTAINER_PATH: ${TXSIM_PROJECTS_CONTAINER_PATH:-/workspace/projects}
     ports:
       - "${TXSIM_BACKEND_PORT:-8080}:8080"

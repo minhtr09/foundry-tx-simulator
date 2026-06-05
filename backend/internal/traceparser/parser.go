@@ -80,6 +80,18 @@ func ParseOutput(output string) (ParsedOutput, error) {
 		return ParsedOutput{}, fmt.Errorf("forge json trace output is empty")
 	}
 
+	parsed, forgeErr := parseForgeTestOutput(raw)
+	if forgeErr == nil {
+		return parsed, nil
+	}
+	parsed, executionErr := parseExecutionTraceJSON(raw)
+	if executionErr == nil {
+		return parsed, nil
+	}
+	return ParsedOutput{}, fmt.Errorf("%v; %v", forgeErr, executionErr)
+}
+
+func parseForgeTestOutput(raw []byte) (ParsedOutput, error) {
 	var suites map[string]forgeTestSuite
 	if err := json.Unmarshal(raw, &suites); err != nil {
 		return ParsedOutput{}, fmt.Errorf("decode forge test json trace: %w", err)
@@ -105,10 +117,36 @@ func ParseOutput(output string) (ParsedOutput, error) {
 			transfers = append(transfers, trace.erc20Transfers()...)
 		}
 	}
+	return parsedExecutionTraceOutput(traceOutput, transfers, "forge test json trace")
+}
+
+func parseExecutionTraceJSON(raw []byte) (ParsedOutput, error) {
+	var rawTraceOutput executionTraceOutput
+	if err := json.Unmarshal(raw, &rawTraceOutput); err != nil {
+		return ParsedOutput{}, fmt.Errorf("decode execution json trace: %w", err)
+	}
+	traceOutput := executionTraceOutput{
+		LabeledAddresses: rawTraceOutput.LabeledAddresses,
+	}
+	transfers := make([]model.ERC20Transfer, 0)
+	for _, trace := range rawTraceOutput.Traces {
+		if !strings.EqualFold(strings.TrimSpace(trace.Kind), "Execution") {
+			continue
+		}
+		traceOutput.Traces = append(traceOutput.Traces, trace)
+		transfers = append(transfers, trace.erc20Transfers()...)
+	}
+	return parsedExecutionTraceOutput(traceOutput, transfers, "execution json trace")
+}
+
+func parsedExecutionTraceOutput(traceOutput executionTraceOutput, transfers []model.ERC20Transfer, label string) (ParsedOutput, error) {
 	if len(traceOutput.Traces) == 0 {
-		return ParsedOutput{}, fmt.Errorf("forge test json trace has no execution traces")
+		return ParsedOutput{}, fmt.Errorf("%s has no execution traces", label)
 	}
 	for _, trace := range traceOutput.Traces {
+		if !strings.EqualFold(strings.TrimSpace(trace.Kind), "Execution") {
+			continue
+		}
 		if len(trace.Body.Arena) > 0 {
 			rawTrace, err := json.Marshal(traceOutput)
 			if err != nil {
@@ -120,7 +158,7 @@ func ParseOutput(output string) (ParsedOutput, error) {
 			}, nil
 		}
 	}
-	return ParsedOutput{}, fmt.Errorf("forge test json trace has no arena nodes")
+	return ParsedOutput{}, fmt.Errorf("%s has no arena nodes", label)
 }
 
 func forgeTestResults(suites map[string]forgeTestSuite) []forgeTestResult {

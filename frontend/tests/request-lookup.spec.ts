@@ -52,7 +52,7 @@ test("loads a saved request by request id", async ({ page }) => {
   await page.getByRole("button", { name: "Override Contract" }).click();
   await expect(page.getByLabel("Override Contract Name")).toHaveValue("SavedOverride");
   await expect(page.getByLabel("Override Contract Source")).toHaveValue("pragma solidity ^0.8.0; contract SavedOverride {}");
-  await page.getByRole("button", { name: "Compiler" }).click();
+  await page.getByRole("button", { name: "Run Options" }).click();
   await expect(page.getByLabel("Optimizer Runs")).toHaveValue("300");
   await expect(page.getByLabel("EVM Version")).toHaveValue("cancun");
   await expect(page.getByLabel("Revert Strings")).toHaveValue("debug");
@@ -99,7 +99,7 @@ test("pressing enter does not open a request while simulation is running", async
       body: JSON.stringify({ error: "lookup should not run while simulation is active" })
     });
   });
-  await page.route(`${apiURL}/simulate`, async (route) => {
+  await page.route(`${apiURL}/simulation`, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 750));
     await route.fulfill({
       status: 200,

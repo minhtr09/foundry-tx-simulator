@@ -9,7 +9,7 @@ import (
 
 func TestLoadExpandsAndNormalizesExplorerURLs(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 	workDir := filepath.Join(configDir, "runs")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
@@ -108,7 +108,7 @@ func TestResolveConfigPathReportsAcceptedConfigNames(t *testing.T) {
 	if err == nil {
 		t.Fatal("ResolveConfigPath succeeded, want error")
 	}
-	for _, want := range []string{"config.yml", "config.yaml", "config.example.yml", "config.example.yaml"} {
+	for _, want := range []string{"config.yml", "config.example.yml"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %q, want it to mention %q", err.Error(), want)
 		}
@@ -117,7 +117,7 @@ func TestResolveConfigPathReportsAcceptedConfigNames(t *testing.T) {
 
 func TestLoadUsesListenAddressFromConfigDespiteEnv(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
 	t.Setenv("TXSIM_LISTEN_ADDR", "127.0.0.1:9090")
@@ -142,7 +142,7 @@ rpc_urls:
 
 func TestLoadUsesConfigValuesDespiteEnv(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 	workDir := filepath.Join(configDir, "env-runs")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
@@ -152,6 +152,7 @@ func TestLoadUsesConfigValuesDespiteEnv(t *testing.T) {
 	t.Setenv("TXSIM_TIMEOUT_SECONDS", "9")
 	t.Setenv("TXSIM_MAX_CONCURRENT_RUNS", "3")
 	t.Setenv("TXSIM_FORGE_BIN", "forge-env")
+	t.Setenv("TXSIM_CAST_BIN", "cast-env")
 	t.Setenv("TXSIM_ANVIL_BIN", "anvil-env")
 	t.Setenv("TXSIM_ANVIL_HOST", "127.0.0.2")
 	t.Setenv("TXSIM_ANVIL_PORT_START", "19454")
@@ -166,6 +167,7 @@ work_dir: "config-runs"
 timeout_seconds: 1
 max_concurrent_runs: 1
 forge_bin: "forge-config"
+cast_bin: "cast-config"
 anvil_bin: "anvil-config"
 anvil_host: "127.0.0.1"
 anvil_port_start: 18545
@@ -201,6 +203,9 @@ explorer_urls:
 	if cfg.ForgeBin != "forge-config" {
 		t.Fatalf("forge bin = %q, want config value", cfg.ForgeBin)
 	}
+	if cfg.CastBin != "cast-config" {
+		t.Fatalf("cast bin = %q, want config value", cfg.CastBin)
+	}
 	if cfg.AnvilBin != "anvil-config" {
 		t.Fatalf("anvil bin = %q, want config value", cfg.AnvilBin)
 	}
@@ -223,7 +228,7 @@ explorer_urls:
 
 func TestLoadReadsDotEnvWithGotenv(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
 	t.Cleanup(func() {
@@ -265,7 +270,7 @@ ETHERSCAN_API_KEY=etherscan-dotenv
 
 func TestLoadExistingEnvOverridesDotEnv(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
 	t.Setenv("MAINNET_RPC_URL", "https://rpc.env")
@@ -292,7 +297,7 @@ rpc_urls:
 
 func TestLoadDoesNotReadPlainEtherscanAPIKeyEnvWithoutConfigPlaceholder(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
 	t.Setenv("ETHERSCAN_API_KEY", "etherscan-env")
@@ -316,7 +321,7 @@ rpc_urls:
 
 func TestLoadUsesViperDefaults(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
 
@@ -355,6 +360,9 @@ func TestLoadUsesViperDefaults(t *testing.T) {
 	if cfg.ForgeBin != "forge-kyber" {
 		t.Fatalf("forge bin = %q, want viper default", cfg.ForgeBin)
 	}
+	if cfg.CastBin != "cast-kyber" {
+		t.Fatalf("cast bin = %q, want viper default", cfg.CastBin)
+	}
 	if cfg.AnvilBin != "anvil-kyber" {
 		t.Fatalf("anvil bin = %q, want viper default", cfg.AnvilBin)
 	}
@@ -372,7 +380,7 @@ func TestLoadUsesViperDefaults(t *testing.T) {
 func TestLoadExpandsHomeInProjectRoots(t *testing.T) {
 	configDir := t.TempDir()
 	homeDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 
 	t.Setenv("HOME", homeDir)
 	t.Setenv("TXSIM_CONFIG", configPath)
@@ -399,7 +407,7 @@ rpc_urls:
 
 func TestLoadNormalizesProjectCachePath(t *testing.T) {
 	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.yml")
 
 	t.Setenv("TXSIM_CONFIG", configPath)
 
