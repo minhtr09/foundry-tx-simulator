@@ -662,7 +662,7 @@ func TestFetchLatestBlockNumberRejectsNonOKStatus(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "rpc status 429") || !strings.Contains(err.Error(), "rate limited") {
+	if !strings.Contains(err.Error(), "429 Too Many Requests") || !strings.Contains(err.Error(), "rate limited") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -678,7 +678,7 @@ func TestFetchLatestBlockNumberRequiresHexResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), `invalid block number "42": missing 0x prefix`) {
+	if !strings.Contains(err.Error(), "without 0x prefix") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -5,15 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"foundry-tx-simulator/backend/internal/config"
 	"foundry-tx-simulator/backend/internal/forge"
@@ -32,10 +34,8 @@ const (
 	simulationTestName     = "testSimulateTx"
 	inputPathEnvName       = "TXSIM_INPUT_PATH"
 	senderLabel            = "Sender"
-	rpcErrorBodyLimit      = 1024
+	latestBlockTimeout     = 10 * time.Second
 )
-
-var latestBlockHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 type forgeRunner interface {
 	Run(ctx context.Context, args ...string) forge.Result
@@ -897,52 +897,18 @@ func (s *Service) acquireWorker(ctx context.Context) (*simulationWorker, func(),
 }
 
 func fetchLatestBlockNumber(ctx context.Context, rpcURL string) (string, error) {
-	body := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, body)
+	ctx, cancel := context.WithTimeout(ctx, latestBlockTimeout)
+	defer cancel()
+
+	client, err := rpc.DialContext(ctx, rpcURL)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	defer client.Close()
 
-	resp, err := latestBlockHTTPClient.Do(req)
-	if err != nil {
+	var blockNumber hexutil.Uint64
+	if err := client.CallContext(ctx, &blockNumber, "eth_blockNumber"); err != nil {
 		return "", err
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		snippet, readErr := io.ReadAll(io.LimitReader(resp.Body, rpcErrorBodyLimit))
-		if readErr != nil {
-			return "", fmt.Errorf("rpc status %d: read response body: %w", resp.StatusCode, readErr)
-		}
-		detail := strings.TrimSpace(string(snippet))
-		if detail == "" {
-			return "", fmt.Errorf("rpc status %d", resp.StatusCode)
-		}
-		return "", fmt.Errorf("rpc status %d: %s", resp.StatusCode, detail)
-	}
-
-	var rpcResp struct {
-		Result string `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return "", err
-	}
-	if rpcResp.Error != nil {
-		return "", fmt.Errorf("rpc error: %s", rpcResp.Error.Message)
-	}
-
-	if !strings.HasPrefix(rpcResp.Result, "0x") {
-		return "", fmt.Errorf("invalid block number %q: missing 0x prefix", rpcResp.Result)
-	}
-	hex := strings.TrimPrefix(rpcResp.Result, "0x")
-	n, ok := new(big.Int).SetString(hex, 16)
-	if !ok {
-		return "", fmt.Errorf("invalid block number %q", rpcResp.Result)
-	}
-	return n.String(), nil
+	return strconv.FormatUint(uint64(blockNumber), 10), nil
 }
