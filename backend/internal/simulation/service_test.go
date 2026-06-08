@@ -652,6 +652,37 @@ func TestSimulateLatestBlockPersistsResolvedBlock(t *testing.T) {
 	}
 }
 
+func TestFetchLatestBlockNumberRejectsNonOKStatus(t *testing.T) {
+	rpc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+	}))
+	t.Cleanup(rpc.Close)
+
+	_, err := fetchLatestBlockNumber(context.Background(), rpc.URL)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "rpc status 429") || !strings.Contains(err.Error(), "rate limited") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFetchLatestBlockNumberRequiresHexResult(t *testing.T) {
+	rpc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"42"}`))
+	}))
+	t.Cleanup(rpc.Close)
+
+	_, err := fetchLatestBlockNumber(context.Background(), rpc.URL)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `invalid block number "42": missing 0x prefix`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestSimulateDoesNotPersistRecordWhenWorkerUnavailable(t *testing.T) {
 	workDir := filepath.Join(t.TempDir(), "runs")
 	service := NewService(config.Config{

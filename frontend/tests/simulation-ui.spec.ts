@@ -43,6 +43,29 @@ test("shows validation errors for malformed simulation inputs", async ({ page })
   expect(simulateCalls).toBe(0);
 });
 
+test("requires a block number unless latest block is enabled", async ({ page }) => {
+  await routeBaseEndpoints(page);
+  let simulateCalls = 0;
+  await page.route(`${apiURL}/simulation`, async (route) => {
+    simulateCalls += 1;
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "simulate should not be called" })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("Sender").fill(spender);
+  await page.getByLabel("Target").fill(token);
+  await page.getByLabel("Calldata").fill("0x");
+
+  await page.getByRole("button", { name: "Run Simulation" }).click();
+
+  await expect(page.locator(".error-box")).toContainText("blockNumber is required unless latest block is enabled");
+  expect(simulateCalls).toBe(0);
+});
+
 test("changes the running action to abort and cancels the active request", async ({ page }) => {
   await routeBaseEndpoints(page);
   await page.route(`${apiURL}/simulation`, async (route) => {

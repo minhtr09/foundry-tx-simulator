@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -31,7 +32,10 @@ const (
 	simulationTestName     = "testSimulateTx"
 	inputPathEnvName       = "TXSIM_INPUT_PATH"
 	senderLabel            = "Sender"
+	rpcErrorBodyLimit      = 1024
 )
+
+var latestBlockHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 type forgeRunner interface {
 	Run(ctx context.Context, args ...string) forge.Result
@@ -900,11 +904,24 @@ func fetchLatestBlockNumber(ctx context.Context, rpcURL string) (string, error) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := latestBlockHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		snippet, readErr := io.ReadAll(io.LimitReader(resp.Body, rpcErrorBodyLimit))
+		if readErr != nil {
+			return "", fmt.Errorf("rpc status %d: read response body: %w", resp.StatusCode, readErr)
+		}
+		detail := strings.TrimSpace(string(snippet))
+		if detail == "" {
+			return "", fmt.Errorf("rpc status %d", resp.StatusCode)
+		}
+		return "", fmt.Errorf("rpc status %d: %s", resp.StatusCode, detail)
+	}
 
 	var rpcResp struct {
 		Result string `json:"result"`
@@ -919,6 +936,9 @@ func fetchLatestBlockNumber(ctx context.Context, rpcURL string) (string, error) 
 		return "", fmt.Errorf("rpc error: %s", rpcResp.Error.Message)
 	}
 
+	if !strings.HasPrefix(rpcResp.Result, "0x") {
+		return "", fmt.Errorf("invalid block number %q: missing 0x prefix", rpcResp.Result)
+	}
 	hex := strings.TrimPrefix(rpcResp.Result, "0x")
 	n, ok := new(big.Int).SetString(hex, 16)
 	if !ok {

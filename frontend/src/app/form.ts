@@ -152,6 +152,9 @@ export function buildSimulationRequest(form: FormState): SimulateRequest {
   if (!form.target.trim()) {
     throw new Error("target is required");
   }
+  if (!form.useLatestBlock && !form.blockNumber.trim()) {
+    throw new Error("blockNumber is required unless latest block is enabled");
+  }
 
   const compiler: CompilerConfig = {
     viaIR: form.viaIR,
