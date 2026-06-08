@@ -33,15 +33,20 @@ func (p RPCMetadataProvider) Fetch(ctx context.Context, chain string, tokens []s
 	}
 
 	out := make(map[string]fundflow.TokenPrice)
-	client := defaultHTTPClient(p.Client)
+	rpcClient, err := rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(defaultHTTPClient(p.Client)))
+	if err == nil {
+		defer rpcClient.Close()
+	}
 	for _, token := range tokens {
 		metadata := fundflow.TokenPrice{LogoURL: trustWalletLogoURL(chain, token)}
-		if decimals, ok := p.fetchDecimals(ctx, client, rpcURL, token); ok {
-			metadata.Decimals = decimals
-			metadata.HasDecimals = true
-		}
-		if symbol, ok := p.fetchSymbol(ctx, client, rpcURL, token); ok {
-			metadata.Symbol = symbol
+		if rpcClient != nil {
+			if decimals, ok := p.fetchDecimals(ctx, rpcClient, token); ok {
+				metadata.Decimals = decimals
+				metadata.HasDecimals = true
+			}
+			if symbol, ok := p.fetchSymbol(ctx, rpcClient, token); ok {
+				metadata.Symbol = symbol
+			}
 		}
 		if metadata.HasDecimals || metadata.Symbol != "" || metadata.LogoURL != "" {
 			out[token] = metadata
@@ -50,31 +55,25 @@ func (p RPCMetadataProvider) Fetch(ctx context.Context, chain string, tokens []s
 	return out, nil
 }
 
-func (p RPCMetadataProvider) fetchDecimals(ctx context.Context, client *http.Client, rpcURL string, token string) (int, bool) {
-	result, err := ethCall(ctx, client, rpcURL, token, erc20DecimalsSelector)
+func (p RPCMetadataProvider) fetchDecimals(ctx context.Context, client *rpc.Client, token string) (int, bool) {
+	result, err := ethCall(ctx, client, token, erc20DecimalsSelector)
 	if err != nil {
 		return 0, false
 	}
 	return parseUintResult(result)
 }
 
-func (p RPCMetadataProvider) fetchSymbol(ctx context.Context, client *http.Client, rpcURL string, token string) (string, bool) {
-	result, err := ethCall(ctx, client, rpcURL, token, erc20SymbolSelector)
+func (p RPCMetadataProvider) fetchSymbol(ctx context.Context, client *rpc.Client, token string) (string, bool) {
+	result, err := ethCall(ctx, client, token, erc20SymbolSelector)
 	if err != nil {
 		return "", false
 	}
 	return parseStringResult(result)
 }
 
-func ethCall(ctx context.Context, client *http.Client, rpcURL string, to string, data string) (string, error) {
-	rpcClient, err := rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(client))
-	if err != nil {
-		return "", err
-	}
-	defer rpcClient.Close()
-
+func ethCall(ctx context.Context, client *rpc.Client, to string, data string) (string, error) {
 	var result string
-	err = rpcClient.CallContext(ctx, &result, "eth_call", map[string]string{
+	err := client.CallContext(ctx, &result, "eth_call", map[string]string{
 		"to":   to,
 		"data": data,
 	}, "latest")

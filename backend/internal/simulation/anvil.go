@@ -27,10 +27,11 @@ const (
 )
 
 type anvilInstance struct {
-	bin    string
-	host   string
-	port   int
-	client *http.Client
+	bin       string
+	host      string
+	port      int
+	client    *http.Client
+	rpcClient *rpc.Client
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -183,12 +184,23 @@ func (a *anvilInstance) ensurePortAvailable() error {
 }
 
 func (a *anvilInstance) callRPC(ctx context.Context, result any, method string, params ...any) error {
-	client, err := rpc.DialOptions(ctx, a.rpcURL(), rpc.WithHTTPClient(a.client))
+	client, err := a.rpcClientLocked(ctx)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
 	return client.CallContext(ctx, result, method, params...)
+}
+
+func (a *anvilInstance) rpcClientLocked(ctx context.Context) (*rpc.Client, error) {
+	if a.rpcClient != nil {
+		return a.rpcClient, nil
+	}
+	client, err := rpc.DialOptions(ctx, a.rpcURL(), rpc.WithHTTPClient(a.client))
+	if err != nil {
+		return nil, err
+	}
+	a.rpcClient = client
+	return client, nil
 }
 
 func (a *anvilInstance) runningLocked() bool {
@@ -223,6 +235,10 @@ func (a *anvilInstance) recordProcessExitLocked(err error) {
 }
 
 func (a *anvilInstance) stopLocked() {
+	if a.rpcClient != nil {
+		a.rpcClient.Close()
+		a.rpcClient = nil
+	}
 	if a.cmd != nil && a.cmd.Process != nil && a.runningLocked() {
 		slog.Info("anvil stop started", "anvil_rpc", a.rpcURL(), "port", a.port)
 		_ = a.cmd.Process.Kill()
