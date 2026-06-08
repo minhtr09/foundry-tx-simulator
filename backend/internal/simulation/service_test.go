@@ -1,7 +1,6 @@
 package simulation
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -17,6 +16,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"foundry-tx-simulator/backend/internal/config"
 	"foundry-tx-simulator/backend/internal/forge"
@@ -917,13 +919,9 @@ contract WETHStateOverride is Test {
 func mainnetBlockNumber(t *testing.T, rpcURL string) string {
 	t.Helper()
 
-	var result string
-	callRPC(t, rpcURL, "eth_blockNumber", []any{}, &result)
-	n := new(big.Int)
-	if _, ok := n.SetString(strings.TrimPrefix(result, "0x"), 16); !ok {
-		t.Fatalf("invalid eth_blockNumber result: %q", result)
-	}
-	return n.String()
+	var result hexutil.Uint64
+	callRPC(t, rpcURL, &result, "eth_blockNumber")
+	return strconv.FormatUint(uint64(result), 10)
 }
 
 func erc721OwnerOf(t *testing.T, rpcURL string, blockNumber string, token string, tokenID *big.Int) string {
@@ -931,16 +929,11 @@ func erc721OwnerOf(t *testing.T, rpcURL string, blockNumber string, token string
 
 	blockHex := "0x" + mustBigInt(t, blockNumber).Text(16)
 	data := "0x6352211e" + encodeUint256(tokenID)
-	params := []any{
-		map[string]string{
-			"to":   token,
-			"data": data,
-		},
-		blockHex,
-	}
-
 	var result string
-	callRPC(t, rpcURL, "eth_call", params, &result)
+	callRPC(t, rpcURL, &result, "eth_call", map[string]string{
+		"to":   token,
+		"data": data,
+	}, blockHex)
 	result = strings.TrimPrefix(result, "0x")
 	if len(result) != 64 {
 		t.Fatalf("unexpected ownerOf result length: %q", result)
@@ -948,53 +941,18 @@ func erc721OwnerOf(t *testing.T, rpcURL string, blockNumber string, token string
 	return "0x" + result[24:]
 }
 
-func callRPC(t *testing.T, rpcURL string, method string, params []any, result any) {
+func callRPC(t *testing.T, rpcURL string, result any, method string, params ...any) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  method,
-		"params":  params,
-	})
+	client, err := rpc.DialContext(ctx, rpcURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	var rpcResp struct {
-		Result json.RawMessage `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		t.Fatal(err)
-	}
-	if rpcResp.Error != nil {
-		t.Fatalf("rpc %s failed: %d %s", method, rpcResp.Error.Code, rpcResp.Error.Message)
-	}
-	if len(rpcResp.Result) == 0 {
-		t.Fatalf("rpc %s returned empty result", method)
-	}
-	if err := json.Unmarshal(rpcResp.Result, result); err != nil {
+	defer client.Close()
+	if err := client.CallContext(ctx, result, method, params...); err != nil {
 		t.Fatal(err)
 	}
 }

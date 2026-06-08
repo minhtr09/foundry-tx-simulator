@@ -1,14 +1,13 @@
 package prices
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"math/big"
 	"net/http"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"foundry-tx-simulator/backend/internal/fundflow"
 )
@@ -68,53 +67,18 @@ func (p RPCMetadataProvider) fetchSymbol(ctx context.Context, client *http.Clien
 }
 
 func ethCall(ctx context.Context, client *http.Client, rpcURL string, to string, data string) (string, error) {
-	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "eth_call",
-		"params": []any{
-			map[string]string{
-				"to":   to,
-				"data": data,
-			},
-			"latest",
-		},
-	})
+	rpcClient, err := rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(client))
 	if err != nil {
 		return "", err
 	}
+	defer rpcClient.Close()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("rpc metadata request failed: %s", resp.Status)
-	}
-
-	var payload struct {
-		Result string `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", err
-	}
-	if payload.Error != nil {
-		return "", fmt.Errorf("rpc metadata call failed: %d %s", payload.Error.Code, payload.Error.Message)
-	}
-	return payload.Result, nil
+	var result string
+	err = rpcClient.CallContext(ctx, &result, "eth_call", map[string]string{
+		"to":   to,
+		"data": data,
+	}, "latest")
+	return result, err
 }
 
 func parseUintResult(value string) (int, bool) {
