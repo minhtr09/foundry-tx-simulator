@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	addressPattern = `^0x[0-9a-fA-F]{40}$`
-	bytesPattern   = `^0x([0-9a-fA-F]{2})*$`
-	txHashPattern  = `^0x[0-9a-fA-F]{64}$`
-	uint256Pattern = `^(0x[0-9a-fA-F]+|[0-9]+)$`
+	addressPattern         = `^0x[0-9a-fA-F]{40}$`
+	bytesPattern           = `^0x([0-9a-fA-F]{2})*$`
+	txHashPattern          = `^0x[0-9a-fA-F]{64}$`
+	uint256Pattern         = `^(0x[0-9a-fA-F]+|[0-9]+)$`
+	optionalUint256Pattern = `^(|0x[0-9a-fA-F]+|[0-9]+)$`
 )
 
 func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +217,9 @@ func openAPISchemaCustomizer(_ string, t reflect.Type, tag reflect.StructTag, sc
 
 func enrichOpenAPISchemas(schemas openapi3.Schemas) {
 	setPropertyExample(schemas, "SimulateRequest", "chain", "mainnet")
+	setPropertyDescription(schemas, "SimulateRequest", "blockNumber", "Optional fork block number. Omit or send an empty string to use the latest block from the configured chain RPC.")
+	setPropertyPattern(schemas, "SimulateRequest", "blockNumber", optionalUint256Pattern)
+	setPropertyExample(schemas, "SimulateRequest", "blockNumber", "23000000")
 	setPropertyDescription(schemas, "SimulateRequest", "projectPath", "Optional Foundry project root. When set, the backend runs `forge-kyber build src`, copies the simulation test harness under this project's test folder, and runs forge-kyber test with this root.")
 	setPropertyExample(schemas, "SimulateRequest", "projectPath", "~/project")
 	setPropertyDescription(schemas, "SimulateRequest", "stateOverrideBytecode", "Backend-generated compiled state override bytecode for the simulation test input. Client requests should omit this field.")
@@ -224,6 +228,9 @@ func enrichOpenAPISchemas(schemas openapi3.Schemas) {
 	setPropertyExample(schemas, "SimulateRequest", "sender", "0x0000000000000000000000000000000000000001")
 	setPropertyExample(schemas, "SimulateRequest", "target", "0x0000000000000000000000000000000000000002")
 	setPropertyExample(schemas, "SimulateRequest", "data", "0x")
+	setPropertyDescription(schemas, "SimulateRequest", "value", "Native token call value in wei. Defaults to 0; the sender must already have enough balance in fork state or overrides.")
+	setPropertyDefault(schemas, "SimulateRequest", "value", "0")
+	setPropertyExample(schemas, "SimulateRequest", "value", "0")
 	setPropertyExample(schemas, "TxRequest", "chain", "mainnet")
 	setPropertyExample(schemas, "TxRequest", "txHash", "0x0000000000000000000000000000000000000000000000000000000000000000")
 	setPropertyDescription(schemas, "TxRequest", "decodeInternal", "When true, passes --decode-internal to cast-kyber run. Defaults to false.")
@@ -417,6 +424,12 @@ func setPropertyExample(schemas openapi3.Schemas, schemaName string, propertyNam
 func setPropertyDefault(schemas openapi3.Schemas, schemaName string, propertyName string, value any) {
 	if property := propertyValue(schemas, schemaName, propertyName); property != nil {
 		property.Default = value
+	}
+}
+
+func setPropertyPattern(schemas openapi3.Schemas, schemaName string, propertyName string, pattern string) {
+	if property := propertyValue(schemas, schemaName, propertyName); property != nil {
+		property.Pattern = pattern
 	}
 }
 

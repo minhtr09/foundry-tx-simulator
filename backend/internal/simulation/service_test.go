@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -596,6 +597,58 @@ func TestSimulatePersistsRequestRecord(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfg.WorkDir, resp.ID)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unexpected per-request record directory: %v", err)
+	}
+}
+
+func TestSimulateLatestBlockPersistsResolvedBlock(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeSimulationTestHarness(t, repoRoot)
+	rpc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`))
+	}))
+	t.Cleanup(rpc.Close)
+
+	cfg := config.Config{
+		ListenAddr:     "127.0.0.1:0",
+		RepoRoot:       repoRoot,
+		WorkDir:        filepath.Join(t.TempDir(), "runs"),
+		TimeoutSeconds: 30,
+		MaxConcurrent:  1,
+		ForgeBin:       "forge",
+		RPCURLs: map[string]string{
+			"mainnet": rpc.URL,
+		},
+	}
+	fake := &fakeForgeRunner{
+		results: []forge.Result{
+			{Stdout: forgeJSONTrace()},
+		},
+	}
+	service := NewService(cfg)
+	t.Cleanup(service.Close)
+	service.forge = fake
+	fakeAnvil := setFakeAnvilWorker(service, "http://127.0.0.1:19003")
+
+	resp, status := service.Simulate(context.Background(), model.SimulateRequest{
+		Chain:  "mainnet",
+		Sender: "0x0000000000000000000000000000000000000001",
+		Target: "0x0000000000000000000000000000000000000002",
+		Data:   "0x",
+	})
+
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("simulation failed: status=%d resp=%#v", status, resp)
+	}
+	if len(fakeAnvil.calls) != 1 || fakeAnvil.calls[0].blockNumber != "42" {
+		t.Fatalf("anvil should fork at resolved latest block: %#v", fakeAnvil.calls)
+	}
+	record, err := service.LoadRecord(resp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Request["blockNumber"] != "42" {
+		t.Fatalf("saved request should use resolved block number: %#v", record.Request)
 	}
 }
 

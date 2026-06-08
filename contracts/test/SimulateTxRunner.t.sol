@@ -123,9 +123,6 @@ contract SimulateTxRunnerTest is Test {
       _callAndBubble(stateOverridingContract, "", 0);
     }
 
-    if (request.value > 0) {
-      vm.deal(request.sender, request.value);
-    }
     vm.prank(request.sender);
     _callAndBubble(request.target, request.data, request.value);
   }

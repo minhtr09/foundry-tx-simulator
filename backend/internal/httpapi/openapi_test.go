@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +73,20 @@ func TestOpenAPIEndpoint(t *testing.T) {
 	}
 	if _, ok := properties["decodeInternal"]; !ok {
 		t.Fatalf("decodeInternal should be a request property: %#v", properties)
+	}
+	blockNumber, ok := properties["blockNumber"].(map[string]any)
+	if !ok {
+		t.Fatalf("blockNumber should be a request property: %#v", properties)
+	}
+	if blockNumber["pattern"] != optionalUint256Pattern || !strings.Contains(fmt.Sprint(blockNumber["description"]), "latest block") {
+		t.Fatalf("blockNumber should document latest-block support: %#v", blockNumber)
+	}
+	value, ok := properties["value"].(map[string]any)
+	if !ok {
+		t.Fatalf("value should be a request property: %#v", properties)
+	}
+	if value["default"] != "0" || !strings.Contains(fmt.Sprint(value["description"]), "wei") {
+		t.Fatalf("value should document wei call value: %#v", value)
 	}
 	txRequest, ok := schemas["TxRequest"].(map[string]any)
 	if !ok {

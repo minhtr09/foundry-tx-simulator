@@ -18,7 +18,7 @@ import {
 import { buildAddressLabels } from "../lib/labels";
 import { loadPersistedUIState, savePersistedUIState } from "../lib/persistence";
 import { traceDataFromResponse } from "../lib/forgeTrace";
-import { buildSimulationExport, parseSimulationExportText, simulationExportFilename } from "../lib/simulationExchange";
+import { parseSimulationExportText, simulationExportFilename } from "../lib/simulationExchange";
 import type { SimulateRequest, SimulateResponse, SimulationRecord } from "../api/types";
 
 const requestLookupTimeoutMillis = 10_000;
@@ -101,7 +101,7 @@ export default function App() {
       runRequest(apiUrl, run, signal),
     onSuccess: (result, variables) => {
       setResponse(result.response);
-      setSimulationRecord(buildSimulationExport(variables.run.kind, variables.run.request, result.response));
+      setSimulationRecord(result.record);
       setRequestLookupId(result.requestId);
       setOutputView("trace");
       setExpandMode("depth");

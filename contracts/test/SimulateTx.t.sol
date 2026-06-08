@@ -14,6 +14,8 @@ contract SimulateTxTest is SimulateTxRunnerTest {
   uint256 internal constant WETH_AMOUNT = 1 ether;
   address internal constant STATE_OVERRIDE_WETH_OWNER = 0x0000000000000000000000000000000000000011;
   address internal constant STATE_OVERRIDE_WETH_SPENDER = 0x0000000000000000000000000000000000000012;
+  address internal constant STATE_OVERRIDE_ETH_SENDER = 0x0000000000000000000000000000000000000013;
+  uint256 internal constant ETH_VALUE = 1 ether;
 
   function setUp() public {
     string memory rpcUrl = vm.envOr("MAINNET_RPC_URL", string(""));
@@ -144,6 +146,38 @@ contract SimulateTxTest is SimulateTxRunnerTest {
 
     assertEq(IERC721(BAYC).ownerOf(BAYC_TOKEN_ID), recipient);
   }
+
+  function testStateOverrideDealsETHThenCallsWithValue() public {
+    PayableReceiver receiver = new PayableReceiver();
+
+    SimulateTxRunnerTest.LabelOverride[] memory labelOverrides = new SimulateTxRunnerTest.LabelOverride[](0);
+    SimulateTxRunnerTest.ERC20BalanceOverride[] memory erc20BalanceOverrides =
+      new SimulateTxRunnerTest.ERC20BalanceOverride[](0);
+    SimulateTxRunnerTest.ERC20ApprovalOverride[] memory erc20ApprovalOverrides =
+      new SimulateTxRunnerTest.ERC20ApprovalOverride[](0);
+    SimulateTxRunnerTest.ERC721ApprovalOverride[] memory erc721ApprovalOverrides =
+      new SimulateTxRunnerTest.ERC721ApprovalOverride[](0);
+
+    _simulate(
+      SimulateTxRunnerTest.SimulateRequest({
+        chain: "",
+        blockNumber: 0,
+        projectPath: "",
+        labelOverrides: labelOverrides,
+        erc20BalanceOverrides: erc20BalanceOverrides,
+        erc20ApprovalOverrides: erc20ApprovalOverrides,
+        erc721ApprovalOverrides: erc721ApprovalOverrides,
+        stateOverrideBytecode: type(ETHValueStateOverride).creationCode,
+        sender: STATE_OVERRIDE_ETH_SENDER,
+        target: address(receiver),
+        data: abi.encodeCall(PayableReceiver.receiveValue, ()),
+        value: ETH_VALUE
+      })
+    );
+
+    assertEq(receiver.received(), ETH_VALUE);
+    assertEq(address(receiver).balance, ETH_VALUE);
+  }
 }
 
 contract WETHStateOverride is Test {
@@ -156,5 +190,27 @@ contract WETHStateOverride is Test {
     deal(WETH, OWNER, AMOUNT);
     vm.prank(OWNER);
     IERC20(WETH).approve(SPENDER, AMOUNT);
+  }
+}
+
+contract ETHValueStateOverride is Test {
+  address internal constant SENDER = 0x0000000000000000000000000000000000000013;
+  uint256 internal constant AMOUNT = 1 ether;
+
+  fallback() external {
+    deal(SENDER, AMOUNT);
+  }
+}
+
+contract PayableReceiver {
+  uint256 public received;
+
+  function receiveValue() external payable {
+    received += msg.value;
+  }
+
+  function withdraw(address payable recipient) external {
+    require(recipient != address(0), "recipient zero");
+    recipient.transfer(address(this).balance);
   }
 }

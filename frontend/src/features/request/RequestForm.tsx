@@ -297,7 +297,7 @@ export default function RequestForm(props: RequestFormProps) {
           ) : (
             <div className="field-block">
               <span className="field-label-row">
-                Block
+                <label htmlFor="simulation-block">Block</label>
                 <label className="latest-block-toggle">
                   <input
                     type="checkbox"
@@ -308,6 +308,7 @@ export default function RequestForm(props: RequestFormProps) {
                 </label>
               </span>
               <input
+                id="simulation-block"
                 value={form.useLatestBlock ? "" : form.blockNumber}
                 placeholder={form.useLatestBlock ? "latest" : "23000000"}
                 disabled={form.useLatestBlock}
